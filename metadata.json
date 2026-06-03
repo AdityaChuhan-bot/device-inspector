@@ -1,0 +1,6 @@
+{
+  "name": "Device Inspector",
+  "description": "Provide users with complete hardware and software information about their Android device in a clean dashboard.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
