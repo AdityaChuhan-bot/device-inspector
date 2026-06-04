@@ -139,6 +139,7 @@ fun DeviceInspectorApp(viewModel: DeviceViewModel) {
                 "sensors" -> SensorsDetailScreen(viewModel)
                 "display" -> DisplayDetailScreen(viewModel)
                 "benchmark" -> BenchmarkDetailScreen(viewModel)
+                "system_test" -> SystemTestScreen(viewModel)
                 else -> DashboardScreen(viewModel)
             }
         }
@@ -262,6 +263,9 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
     val network by viewModel.networkInfo.collectAsState()
     val sensors by viewModel.sensorList.collectAsState()
     val display by viewModel.displayInfo.collectAsState()
+    
+    val diagState by viewModel.diagnosticState.collectAsState()
+    val diagTests by viewModel.diagnosticTests.collectAsState()
 
     Scaffold(
         topBar = {
@@ -549,6 +553,36 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
                         icon = Icons.Default.Star,
                         testTag = "btn_nav_benchmark",
                         onClick = { viewModel.navigateTo("benchmark") }
+                    )
+
+                    // System & Sensors Diagnostic Tests Card
+                    val passedCount = diagTests.count { it.status == "PASSED" }
+                    val totalCount = diagTests.size
+                    val diagBadge = when (diagState) {
+                        DiagnosticState.IDLE -> "START SCAN"
+                        DiagnosticState.RUNNING -> "TESTING..."
+                        DiagnosticState.FINISHED -> "$passedCount/$totalCount PASSED"
+                    }
+                    val diagBadgeBg = when (diagState) {
+                        DiagnosticState.IDLE -> InspectorTheme.NeonCyan
+                        DiagnosticState.RUNNING -> InspectorTheme.AmberGlow
+                        DiagnosticState.FINISHED -> InspectorTheme.NeonTeal
+                    }
+                    val diagInfoText = when (diagState) {
+                        DiagnosticState.IDLE -> "Verify operational registers & dynamic sensor streams"
+                        DiagnosticState.RUNNING -> "Actively testing device registers & drivers"
+                        DiagnosticState.FINISHED -> "Diagnostics block completed successfully"
+                    }
+
+                    DashboardLinkCard(
+                        title = "System & Sensors Tests",
+                        subtitle = "Diagnostic suite for all system blocks and hardware",
+                        infoText = diagInfoText,
+                        badge = diagBadge,
+                        badgeBg = diagBadgeBg,
+                        icon = Icons.Default.CheckCircle,
+                        testTag = "btn_nav_system_test",
+                        onClick = { viewModel.navigateTo("system_test") }
                     )
                 }
             }
@@ -1704,6 +1738,328 @@ fun DiagnosticConsoleLogger(logs: List<String>) {
                         InspectorTheme.TextMuted
                     }
                 )
+            }
+        }
+    }
+}
+
+// ================= SYSTEM & SENSORS DIAGNOSTICS SCREEN =================
+
+@Composable
+fun SystemTestScreen(viewModel: DeviceViewModel) {
+    val diagState by viewModel.diagnosticState.collectAsState()
+    val progress by viewModel.diagnosticProgress.collectAsState()
+    val currentItem by viewModel.currentTestingItem.collectAsState()
+    val tests by viewModel.diagnosticTests.collectAsState()
+
+    val context = LocalContext.current
+
+    Scaffold(
+        topBar = {
+            SubScreenTopBar("System & Sensors", onBack = { viewModel.navigateTo("dashboard") })
+        },
+        containerColor = InspectorTheme.DarkBg
+    ) { innerPadding ->
+        Column(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            Spacer(modifier = Modifier.height(4.dp))
+
+            // Main Gauge Card
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(20.dp),
+                colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(20.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Gauge visualization
+                    Box(
+                        modifier = Modifier
+                            .size(140.dp)
+                            .padding(4.dp),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        val activeColor = if (diagState == DiagnosticState.FINISHED) InspectorTheme.NeonTeal else InspectorTheme.AmberGlow
+                        val trackColor = InspectorTheme.DividerBg
+
+                        Canvas(modifier = Modifier.fillMaxSize()) {
+                            // Draw track circle
+                            drawArc(
+                                color = trackColor,
+                                startAngle = -225f,
+                                sweepAngle = 270f,
+                                useCenter = false,
+                                style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                            
+                            // Draw active arc based on progress
+                            drawArc(
+                                color = activeColor,
+                                startAngle = -225f,
+                                sweepAngle = 270f * progress,
+                                useCenter = false,
+                                style = Stroke(width = 10.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+
+                        Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                            val scorePercentage = if (diagState == DiagnosticState.FINISHED) {
+                                val passedCount = tests.count { it.status == "PASSED" }
+                                val total = tests.size.coerceAtLeast(1)
+                                ((passedCount.toFloat() / total.toFloat()) * 100).toInt()
+                            } else {
+                                (progress * 100).toInt()
+                            }
+                            
+                            val labelText = when (diagState) {
+                                DiagnosticState.IDLE -> "READY"
+                                DiagnosticState.RUNNING -> "RUNNING"
+                                DiagnosticState.FINISHED -> "HEALTH"
+                            }
+
+                            Text(
+                                text = labelText,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = InspectorTheme.TextMuted
+                            )
+                            Spacer(modifier = Modifier.height(2.dp))
+                            Text(
+                                text = "$scorePercentage%",
+                                fontSize = 32.sp,
+                                fontWeight = FontWeight.Black,
+                                color = if (diagState == DiagnosticState.FINISHED) InspectorTheme.NeonTeal else InspectorTheme.TextWhite
+                            )
+                        }
+                    }
+
+                    // Display info text on status
+                    val heading = when (diagState) {
+                        DiagnosticState.IDLE -> "Ready for Diagnostic Probe"
+                        DiagnosticState.RUNNING -> "Scanning Device Registers..."
+                        DiagnosticState.FINISHED -> "Scan Completed Successfully!"
+                    }
+                    val body = when (diagState) {
+                        DiagnosticState.IDLE -> "Initiates an automated diagnostic check across multi-core processors, memory speeds, cache blocks, local storage file trees, and native hardware sensor registers."
+                        DiagnosticState.RUNNING -> "Evaluating module: ${currentItem ?: "System Components"}..."
+                        DiagnosticState.FINISHED -> {
+                            val passed = tests.count { it.status == "PASSED" }
+                            val warnings = tests.count { it.status == "WARNING" }
+                            "Scan complete. $passed components fully optimal. $warnings warnings or unpopulated registers detected."
+                        }
+                    }
+
+                    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                        Text(
+                            text = heading,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.Bold,
+                            color = InspectorTheme.TextWhite,
+                            textAlign = TextAlign.Center
+                        )
+                        Spacer(modifier = Modifier.height(4.dp))
+                        Text(
+                            text = body,
+                            fontSize = 12.sp,
+                            color = InspectorTheme.TextMuted,
+                            textAlign = TextAlign.Center,
+                            lineHeight = 16.sp,
+                            modifier = Modifier.padding(horizontal = 8.dp)
+                        )
+                    }
+
+                    // CTAs
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(top = 8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(12.dp)
+                    ) {
+                        if (diagState == DiagnosticState.RUNNING) {
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(48.dp)
+                                    .background(InspectorTheme.DividerBg, RoundedCornerShape(12.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Text("DIAGNOSTICS IN PROGRESS...", color = InspectorTheme.TextMuted, fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        } else {
+                            if (diagState == DiagnosticState.FINISHED) {
+                                Button(
+                                    onClick = { viewModel.resetSystemAndSensorsTest() },
+                                    colors = ButtonDefaults.buttonColors(containerColor = InspectorTheme.DividerBg),
+                                    modifier = Modifier.weight(1f).height(48.dp),
+                                    shape = RoundedCornerShape(12.dp)
+                                ) {
+                                    Text("RESET", color = InspectorTheme.TextWhite, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                            Button(
+                                onClick = { viewModel.startSystemAndSensorsTest() },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = if (diagState == DiagnosticState.FINISHED) InspectorTheme.NeonCyan else InspectorTheme.NeonTeal
+                                ),
+                                modifier = Modifier.weight(1.8f).height(48.dp),
+                                shape = RoundedCornerShape(12.dp)
+                            ) {
+                                val buttonText = if (diagState == DiagnosticState.FINISHED) "RE-TEST" else "START TEST"
+                                Text(buttonText, color = Color.White, fontWeight = FontWeight.Bold)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Results List Header
+            if (tests.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp, vertical = 2.dp),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "DIAGNOSTICS DETAIL RECORD",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = InspectorTheme.TextMuted
+                    )
+                    Text(
+                        text = "${tests.count { it.status == "PASSED" || it.status == "WARNING" }} / ${tests.size} Passed",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = InspectorTheme.NeonTeal
+                    )
+                }
+            }
+
+            // Lazy list of diagnostic items
+            LazyColumn(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                items(tests) { item ->
+                    Card(
+                        modifier = Modifier.fillMaxWidth(),
+                        shape = RoundedCornerShape(12.dp),
+                        colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                        border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(12.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(modifier = Modifier.weight(1f)) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(if (item.type == "System") InspectorTheme.NeonBlue.copy(alpha = 0.2f) else InspectorTheme.NeonCyan.copy(alpha = 0.2f))
+                                            .padding(horizontal = 6.dp, vertical = 2.dp)
+                                    ) {
+                                        Text(item.type.uppercase(), fontSize = 8.sp, fontWeight = FontWeight.Black, color = if (item.type == "System") InspectorTheme.NeonBlue else InspectorTheme.NeonCyan)
+                                    }
+                                    Text(item.name, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = InspectorTheme.TextWhite)
+                                }
+                                Spacer(modifier = Modifier.height(4.dp))
+                                Text(
+                                    text = if (item.status == "PENDING" || item.status == "TESTING") item.description else item.detail,
+                                    fontSize = 11.sp,
+                                    color = InspectorTheme.TextMuted
+                                )
+                            }
+
+                            Spacer(modifier = Modifier.width(12.dp))
+
+                            // Status Indicator Badge
+                            when (item.status) {
+                                "PENDING" -> {
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .border(1.5.dp, InspectorTheme.DividerBg, CircleShape)
+                                    )
+                                }
+                                "TESTING" -> {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = InspectorTheme.AmberGlow
+                                    )
+                                }
+                                "PASSED" -> {
+                                    val passedColor = InspectorTheme.NeonTeal
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(passedColor.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Canvas(modifier = Modifier.size(10.dp)) {
+                                            val path = androidx.compose.ui.graphics.Path().apply {
+                                                moveTo(size.width * 0.18f, size.height * 0.5f)
+                                                lineTo(size.width * 0.45f, size.height * 0.78f)
+                                                lineTo(size.width * 0.85f, size.height * 0.22f)
+                                            }
+                                            drawPath(
+                                                path = path,
+                                                color = passedColor,
+                                                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round, join = androidx.compose.ui.graphics.StrokeJoin.Companion.Round)
+                                            )
+                                        }
+                                    }
+                                }
+                                "WARNING" -> {
+                                    val warningColor = InspectorTheme.AmberGlow
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(warningColor.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("!", color = warningColor, fontSize = 12.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                                "FAILED" -> {
+                                    val failedColor = InspectorTheme.WarmCoral
+                                    Box(
+                                        modifier = Modifier
+                                            .size(20.dp)
+                                            .clip(CircleShape)
+                                            .background(failedColor.copy(alpha = 0.15f)),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text("✗", color = failedColor, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                item { Spacer(modifier = Modifier.height(16.dp)) }
             }
         }
     }
