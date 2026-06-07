@@ -280,7 +280,11 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
     // Refresh layout data manually if desired
     fun refreshStaticData() {
         _deviceSummary.value = modules.getDeviceSummary()
+        _cpuInfo.value = modules.getCpuInfo()
+        _ramInfo.value = modules.getRamInfo()
+        _batteryInfo.value = modules.getBatteryInfo()
         _storageInfo.value = modules.getStorageInfo()
+        _networkInfo.value = modules.getNetworkInfo()
         _displayInfo.value = modules.getDisplayInfo()
         _sensorList.value = modules.getSensorList()
     }

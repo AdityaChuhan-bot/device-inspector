@@ -31,7 +31,9 @@ data class DeviceSummary(
     val securityPatch: String,
     val manufacturer: String,
     val modelNumber: String,
-    val uptime: String
+    val uptime: String,
+    val sdkLevel: Int,
+    val kernelVersion: String
 )
 
 data class CpuInfo(
@@ -93,6 +95,30 @@ data class DisplayInfo(
 
 class DeviceModules(private val context: Context) {
 
+    private fun getKernelVersion(): String {
+        return try {
+            val osVersion = System.getProperty("os.version") ?: ""
+            if (osVersion.isNotEmpty()) {
+                osVersion
+            } else {
+                val procVersion = File("/proc/version")
+                if (procVersion.exists() && procVersion.canRead()) {
+                    val line = procVersion.readLines().firstOrNull() ?: ""
+                    if (line.isNotEmpty()) {
+                        val parts = line.split("\\s+".toRegex())
+                        if (parts.size > 2) "${parts[0]} ${parts[1]} ${parts[2]}" else line
+                    } else {
+                        "Unknown"
+                    }
+                } else {
+                    "Unknown"
+                }
+            }
+        } catch (e: Exception) {
+            "Unknown"
+        }
+    }
+
     // 1. Device Summary
     fun getDeviceSummary(): DeviceSummary {
         val cr = context.contentResolver
@@ -123,11 +149,13 @@ class DeviceModules(private val context: Context) {
 
         return DeviceSummary(
             deviceName = devName,
-            androidVersion = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})",
+            androidVersion = "Android ${Build.VERSION.RELEASE}",
             securityPatch = securityPatch ?: "Unknown",
             manufacturer = Build.MANUFACTURER.capitalizeLocale(),
             modelNumber = Build.MODEL,
-            uptime = uptimeStr
+            uptime = uptimeStr,
+            sdkLevel = Build.VERSION.SDK_INT,
+            kernelVersion = getKernelVersion()
         )
     }
 
@@ -453,6 +481,7 @@ class DeviceModules(private val context: Context) {
         )
     }
 
+    @android.annotation.SuppressLint("MissingPermission")
     private fun getCellularTypeString(tm: TelephonyManager?): String {
         if (tm == null) return "Cellular"
         return try {
