@@ -67,7 +67,9 @@ data class CpuInfo(
 data class RamInfo(
     val totalBytes: Long,
     val usedBytes: Long,
-    val freeBytes: Long
+    val freeBytes: Long,
+    val isLowMemory: Boolean = false,
+    val thresholdBytes: Long = 0L
 )
 
 data class BatteryInfo(
@@ -365,12 +367,14 @@ class DeviceModules(private val context: Context) {
 
         val total = systemMemory.totalMem
         val available = systemMemory.availMem
-        val used = total - available
+        val used = (total - available).coerceAtLeast(0L)
 
         return RamInfo(
             totalBytes = total,
             usedBytes = used,
-            freeBytes = available
+            freeBytes = available,
+            isLowMemory = systemMemory.lowMemory,
+            thresholdBytes = systemMemory.threshold
         )
     }
 
