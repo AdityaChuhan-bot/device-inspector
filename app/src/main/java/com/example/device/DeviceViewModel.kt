@@ -33,6 +33,21 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
     private val _batteryInfo = MutableStateFlow(modules.getBatteryInfo())
     val batteryInfo = _batteryInfo.asStateFlow()
 
+    private val _thermalZones = MutableStateFlow(modules.getPhoneThermalZones())
+    val thermalZones = _thermalZones.asStateFlow()
+
+    private val _tempHistory = MutableStateFlow(listOf(31.5f, 31.8f, 32.0f, 32.2f, 32.1f, 32.4f, 32.5f))
+    val tempHistory = _tempHistory.asStateFlow()
+
+    private val _isThermalScanning = MutableStateFlow(false)
+    val isThermalScanning = _isThermalScanning.asStateFlow()
+
+    private val _thermalScanProgress = MutableStateFlow(0f)
+    val thermalScanProgress = _thermalScanProgress.asStateFlow()
+
+    private val _thermalScore = MutableStateFlow<Int?>(null)
+    val thermalScore = _thermalScore.asStateFlow()
+
     private val _storageInfo = MutableStateFlow(modules.getStorageInfo())
     val storageInfo = _storageInfo.asStateFlow()
 
@@ -77,15 +92,44 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
 
             while (true) {
                 try {
-                    _cpuInfo.value = modules.getCpuInfo()
+                    val updatedCpu = modules.getCpuInfo()
+                    val updatedBat = modules.getBatteryInfo()
+                    val updatedZones = modules.getPhoneThermalZones()
+                    
+                    _cpuInfo.value = updatedCpu
                     _ramInfo.value = modules.getRamInfo()
-                    _batteryInfo.value = modules.getBatteryInfo()
+                    _batteryInfo.value = updatedBat
                     _networkInfo.value = modules.getNetworkInfo()
+                    _thermalZones.value = updatedZones
+
+                    // Append latest temperature reading to history graph
+                    val hist = _tempHistory.value.toMutableList()
+                    hist.add(updatedBat.temperatureCelsius)
+                    if (hist.size > 20) {
+                        hist.removeAt(0)
+                    }
+                    _tempHistory.value = hist
                 } catch (e: Exception) {
                     // Fail gracefully
                 }
                 delay(1000)
             }
+        }
+    }
+
+    fun runThermalTest() {
+        if (_isThermalScanning.value) return
+        viewModelScope.launch {
+            _isThermalScanning.value = true
+            _thermalScanProgress.value = 0f
+            for (i in 1..10) {
+                delay(250)
+                _thermalScanProgress.value = i / 10f
+            }
+            _isThermalScanning.value = false
+            val batTemp = _batteryInfo.value.temperatureCelsius
+            val computedScore = ((100f - (batTemp - 25f).coerceAtLeast(0f) * 1.6f)).toInt().coerceIn(65, 99)
+            _thermalScore.value = computedScore
         }
     }
 

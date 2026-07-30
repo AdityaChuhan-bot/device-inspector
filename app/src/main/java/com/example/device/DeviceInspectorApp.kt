@@ -20,6 +20,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -192,6 +193,34 @@ fun GridBackground(modifier: Modifier = Modifier) {
             topLeft = Offset(0f, (sweepY - trailHeight).coerceAtLeast(0f)),
             size = androidx.compose.ui.geometry.Size(width, trailHeight.coerceAtMost(sweepY))
         )
+    }
+}
+
+fun Modifier.drawCyberCorners(badgeBg: Color, glowFactor: Float = 1f): Modifier {
+    return this.drawWithContent {
+        drawContent()
+        
+        // Draw cool futuristic corner brackets on top of each card
+        val len = 12.dp.toPx()
+        val thickness = 1.6.dp.toPx()
+        val alpha = (0.25f + 0.55f * glowFactor).coerceIn(0f, 1f)
+        val finalColor = badgeBg.copy(alpha = alpha)
+        
+        // Top-Left L bracket
+        drawLine(color = finalColor, start = Offset(0f, 0f), end = Offset(len, 0f), strokeWidth = thickness)
+        drawLine(color = finalColor, start = Offset(0f, 0f), end = Offset(0f, len), strokeWidth = thickness)
+        
+        // Top-Right L bracket
+        drawLine(color = finalColor, start = Offset(size.width, 0f), end = Offset(size.width - len, 0f), strokeWidth = thickness)
+        drawLine(color = finalColor, start = Offset(size.width, 0f), end = Offset(size.width, len), strokeWidth = thickness)
+        
+        // Bottom-Left L bracket
+        drawLine(color = finalColor, start = Offset(0f, size.height), end = Offset(len, size.height), strokeWidth = thickness)
+        drawLine(color = finalColor, start = Offset(0f, size.height), end = Offset(0f, size.height - len), strokeWidth = thickness)
+        
+        // Bottom-Right L bracket
+        drawLine(color = finalColor, start = Offset(size.width, size.height), end = Offset(size.width - len, size.height), strokeWidth = thickness)
+        drawLine(color = finalColor, start = Offset(size.width, size.height), end = Offset(size.width, size.height - len), strokeWidth = thickness)
     }
 }
 
@@ -751,14 +780,14 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
                         )
                     }
  
-                    // Battery Card
+                    // Battery & Phone Temperature Monitor Card
                     StaggeredFadeInContainer(delayMillis = 150) {
                         DashboardLinkCard(
-                            title = "Battery Management",
+                            title = "Battery & Phone Temperature",
                             subtitle = "Charge: ${battery.percentage}% • ${battery.chargingStatus}",
-                            infoText = "Temp: ${battery.temperatureCelsius}°C • ${battery.healthStatus}",
-                            badge = "Health ${battery.healthEstimate}%",
-                            badgeBg = if (battery.healthEstimate > 80) InspectorTheme.NeonTeal else InspectorTheme.WarmCoral,
+                            infoText = "Phone Temp: ${battery.temperatureCelsius}°C • Core ${battery.healthStatus}",
+                            badge = "${battery.temperatureCelsius}°C Monitor",
+                            badgeBg = if (battery.temperatureCelsius < 38f) InspectorTheme.NeonTeal else InspectorTheme.WarmCoral,
                             icon = Icons.Default.Warning,
                             testTag = "btn_nav_battery",
                             onClick = { viewModel.navigateTo("battery") }
@@ -897,6 +926,17 @@ fun DashboardLinkCard(
         label = "clickScale"
     )
 
+    val infiniteTransition = rememberInfiniteTransition(label = "hudGlow")
+    val glowFactor by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = EaseInOutSine),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowFactor"
+    )
+
     Card(
         modifier = Modifier
             .fillMaxWidth()
@@ -909,7 +949,8 @@ fun DashboardLinkCard(
                 indication = androidx.compose.foundation.LocalIndication.current,
                 onClick = onClick
             )
-            .testTag(testTag),
+            .testTag(testTag)
+            .drawCyberCorners(badgeBg, glowFactor),
         shape = RoundedCornerShape(16.dp),
         colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
         border = BorderStroke(1.dp, InspectorTheme.DividerBg)
@@ -1215,10 +1256,15 @@ fun RamDetailScreen(viewModel: DeviceViewModel) {
 @Composable
 fun BatteryDetailScreen(viewModel: DeviceViewModel) {
     val battery by viewModel.batteryInfo.collectAsState()
+    val thermalZones by viewModel.thermalZones.collectAsState()
+    val tempHistory by viewModel.tempHistory.collectAsState()
+    val isScanning by viewModel.isThermalScanning.collectAsState()
+    val scanProgress by viewModel.thermalScanProgress.collectAsState()
+    val thermalScore by viewModel.thermalScore.collectAsState()
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Battery Management", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("Battery & Temp Monitor", onBack = { viewModel.navigateTo("dashboard") })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -1240,38 +1286,23 @@ fun BatteryDetailScreen(viewModel: DeviceViewModel) {
                 )
             }
 
-            // PRIMARY DYNAMIC BATTERY HEALTH & ALERT PANEL
+            // THERMAL MONITOR BREAKDOWN BANNER
             item {
-                val isOverheat = battery.healthStatus.lowercase().contains("overheat")
-                val isGood = battery.healthStatus.lowercase().contains("good")
-                val alertColor = when {
-                    isOverheat -> InspectorTheme.WarmCoral
-                    isGood -> InspectorTheme.NeonTeal
-                    else -> InspectorTheme.AmberGlow
-                }
-                val alertIcon = when {
-                    isOverheat -> Icons.Default.Warning
-                    isGood -> Icons.Default.CheckCircle
-                    else -> Icons.Default.Info
-                }
-                val conditionLabel = when {
-                    isOverheat -> "OVERHEATING WARNING"
-                    isGood -> "HEALTHY INTEGRITY"
-                    else -> battery.healthStatus.uppercase()
-                }
-                val conditionDesc = when {
-                    isOverheat -> "The core temperature of your lithium cell is dangerously high. Slow down resource-heavy activities now."
-                    isGood -> "Your battery has healthy capacity retention and optimal physical integrity."
-                    else -> "Battery reporting secondary status. Ensure core environment conditions are normal."
+                val stateColor = when (thermalZones.thermalState) {
+                    "OPTIMAL" -> InspectorTheme.NeonTeal
+                    "MODERATE" -> InspectorTheme.NeonCyan
+                    "WARM" -> InspectorTheme.AmberGlow
+                    else -> InspectorTheme.WarmCoral
                 }
 
                 Card(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .testTag("battery_health_status_card"),
+                        .drawCyberCorners(stateColor, 0.8f)
+                        .testTag("phone_temperature_monitor_card"),
                     shape = RoundedCornerShape(20.dp),
                     colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
-                    border = BorderStroke(1.dp, alertColor.copy(alpha = 0.35f))
+                    border = BorderStroke(1.5.dp, stateColor.copy(alpha = 0.5f))
                 ) {
                     Column(
                         modifier = Modifier
@@ -1279,52 +1310,90 @@ fun BatteryDetailScreen(viewModel: DeviceViewModel) {
                             .padding(18.dp)
                     ) {
                         Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
                         ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(36.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(stateColor.copy(alpha = 0.12f))
+                                        .border(1.dp, stateColor.copy(alpha = 0.3f), RoundedCornerShape(10.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = stateColor,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = "PHONE THERMAL ZONE MONITOR",
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        color = InspectorTheme.TextMuted,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Text(
+                                        text = "CORE THERMAL: ${thermalZones.thermalState}",
+                                        fontSize = 14.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = stateColor
+                                    )
+                                }
+                            }
+
                             Box(
                                 modifier = Modifier
-                                    .size(36.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(alertColor.copy(alpha = 0.12f))
-                                    .border(1.dp, alertColor.copy(alpha = 0.25f), RoundedCornerShape(10.dp)),
-                                contentAlignment = Alignment.Center
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(stateColor.copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
                             ) {
-                                Icon(
-                                    imageVector = alertIcon,
-                                    contentDescription = null,
-                                    tint = alertColor,
-                                    modifier = Modifier.size(18.dp)
-                                )
-                            }
-                            Column {
                                 Text(
-                                    text = "BATTERY STATUS INTEGRITY",
-                                    fontSize = 10.sp,
+                                    text = String.format(Locale.getDefault(), "%.1f°C", thermalZones.batteryTempC),
+                                    fontSize = 12.sp,
                                     fontFamily = FontFamily.Monospace,
                                     fontWeight = FontWeight.Bold,
-                                    color = InspectorTheme.TextMuted,
-                                    letterSpacing = 0.5.sp
-                                )
-                                Text(
-                                    text = conditionLabel,
-                                    fontSize = 15.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = alertColor
+                                    color = stateColor
                                 )
                             }
                         }
 
-                        Spacer(modifier = Modifier.height(10.dp))
-                        Text(
-                            text = conditionDesc,
-                            fontSize = 12.sp,
-                            color = InspectorTheme.TextMuted,
-                            fontWeight = FontWeight.Medium,
-                            lineHeight = 16.sp
-                        )
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Multi-zone thermal readout grid
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column(horizontalAlignment = Alignment.Start) {
+                                Text(text = "BATTERY CELL", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(text = String.format(Locale.getDefault(), "%.1f °C", thermalZones.batteryTempC), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InspectorTheme.TextWhite)
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(text = "CPU / SOC CORE", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(text = String.format(Locale.getDefault(), "%.1f °C", thermalZones.cpuTempC), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InspectorTheme.AmberGlow)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(text = "BOARD / AMBIENT", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(text = String.format(Locale.getDefault(), "%.1f °C", thermalZones.boardTempC), fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InspectorTheme.NeonCyan)
+                            }
+                        }
                     }
                 }
+            }
+
+            // REAL-TIME THERMAL OSCILLOSCOPE GRAPH
+            item {
+                RealtimeThermalGraph(tempHistory = tempHistory)
             }
 
             // DUAL-COLUMN HIGH-DENSITY METRICS ROW
@@ -1492,7 +1561,9 @@ fun BatteryDetailScreen(viewModel: DeviceViewModel) {
                     Column(modifier = Modifier.padding(18.dp)) {
                         DetailRow("State of Charge", "${battery.percentage}%", highlight = true)
                         DetailRow("Terminal Voltage", String.format(Locale.getDefault(), "%.3f V", battery.voltageVolts))
-                        DetailRow("Core Temperature", String.format(Locale.getDefault(), "%.1f °C", battery.temperatureCelsius), valueColor = InspectorTheme.WarmCoral)
+                        DetailRow("Battery Temperature", String.format(Locale.getDefault(), "%.1f °C", battery.temperatureCelsius), valueColor = InspectorTheme.WarmCoral)
+                        DetailRow("CPU SoC Temperature", String.format(Locale.getDefault(), "%.1f °C", thermalZones.cpuTempC), valueColor = InspectorTheme.AmberGlow)
+                        DetailRow("System Thermal State", thermalZones.thermalState, valueColor = InspectorTheme.NeonTeal)
                         DetailRow("Plugged Source", battery.powerSource)
                         DetailRow("Device Integrity Status", battery.healthStatus, valueColor = InspectorTheme.NeonTeal)
                         DetailRow("Estimated Health State", "${battery.healthEstimate}%", valueColor = InspectorTheme.NeonCyan)
@@ -1500,7 +1571,173 @@ fun BatteryDetailScreen(viewModel: DeviceViewModel) {
                 }
             }
 
+            // THERMAL DIAGNOSTIC & HEALTH PROBE BUTTON
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally
+                    ) {
+                        Button(
+                            onClick = { viewModel.runThermalTest() },
+                            enabled = !isScanning,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(48.dp)
+                                .testTag("btn_run_thermal_diagnostic"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = InspectorTheme.NeonCyan,
+                                contentColor = InspectorTheme.DarkBg
+                            )
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Text(
+                                    text = if (isScanning) "SCANNING THERMAL ZONES..." else "RUN THERMAL & BATTERY DIAGNOSTIC",
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+
+                        if (isScanning) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            LinearProgressIndicator(
+                                progress = scanProgress,
+                                modifier = Modifier.fillMaxWidth(),
+                                color = InspectorTheme.NeonCyan,
+                                trackColor = InspectorTheme.DividerBg
+                            )
+                        }
+
+                        if (thermalScore != null && !isScanning) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Text(
+                                    text = "THERMAL EFFICIENCY RATING",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = InspectorTheme.TextMuted
+                                )
+                                Text(
+                                    text = "$thermalScore / 100 EXCELLENT",
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    color = InspectorTheme.NeonTeal
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
             item { Spacer(modifier = Modifier.height(24.dp)) }
+        }
+    }
+}
+
+@Composable
+fun RealtimeThermalGraph(tempHistory: List<Float>) {
+    val history = if (tempHistory.isEmpty()) listOf(32f) else tempHistory
+    val minTemp = (history.minOrNull() ?: 30f) - 1.5f
+    val maxTemp = (history.maxOrNull() ?: 40f) + 1.5f
+    val range = (maxTemp - minTemp).coerceAtLeast(1.0f)
+
+    val neonColor = InspectorTheme.NeonCyan
+    val dividerColor = InspectorTheme.DividerBg
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(130.dp)
+            .testTag("realtime_thermal_graph_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+        border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+    ) {
+        Column(modifier = Modifier.padding(12.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Text(
+                    text = "LIVE THERMAL WAVEFORM",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = InspectorTheme.TextMuted
+                )
+                Text(
+                    text = String.format(Locale.getDefault(), "CURRENT: %.1f°C", history.last()),
+                    fontSize = 11.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = InspectorTheme.NeonCyan
+                )
+            }
+            Spacer(modifier = Modifier.height(8.dp))
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val h = size.height
+
+                // Draw background grid lines
+                val gridLines = 3
+                for (i in 0..gridLines) {
+                    val y = h * (i.toFloat() / gridLines)
+                    drawLine(
+                        color = dividerColor.copy(alpha = 0.3f),
+                        start = Offset(0f, y),
+                        end = Offset(w, y),
+                        strokeWidth = 1f
+                    )
+                }
+
+                if (history.size > 1) {
+                    val points = history.mapIndexed { idx, valC ->
+                        val x = w * (idx.toFloat() / (history.size - 1))
+                        val y = h - (h * ((valC - minTemp) / range))
+                        Offset(x, y)
+                    }
+
+                    // Draw line segments
+                    for (i in 0 until points.size - 1) {
+                        drawLine(
+                            color = neonColor,
+                            start = points[i],
+                            end = points[i + 1],
+                            strokeWidth = 2.5.dp.toPx(),
+                            cap = StrokeCap.Round
+                        )
+                    }
+
+                    // Draw glowing dots at key vertices
+                    points.forEach { pt ->
+                        drawCircle(
+                            color = neonColor,
+                            radius = 3.dp.toPx(),
+                            center = pt
+                        )
+                    }
+                }
+            }
         }
     }
 }
@@ -1686,56 +1923,71 @@ fun StorageDetailScreen(viewModel: DeviceViewModel) {
                 .fillMaxSize()
                 .padding(innerPadding)
                 .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(24.dp),
+            verticalArrangement = Arrangement.spacedBy(20.dp),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            Spacer(modifier = Modifier.height(4.dp))
 
-            CircularProgressGauge(
-                percentage = storagePercent,
-                label = String.format(Locale.getDefault(), "%.0f%%", storagePercent * 100),
-                subLabel = "Storage Utilization",
-                gaugeColor = InspectorTheme.AmberGlow,
-                size = 190.dp
-            )
+            StaggeredFadeInContainer(delayMillis = 40) {
+                CircularProgressGauge(
+                    percentage = storagePercent,
+                    label = String.format(Locale.getDefault(), "%.0f%%", storagePercent * 100),
+                    subLabel = "Storage Utilization",
+                    gaugeColor = InspectorTheme.AmberGlow,
+                    size = 180.dp
+                )
+            }
 
-            Card(
-                modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg)
-            ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    DetailRow("Aggregate Storage Capacity", formatBytes(storage.totalBytes), highlight = true)
-                    DetailRow("Allocated/Used Space", formatBytes(storage.usedBytes), valueColor = InspectorTheme.WarmCoral)
-                    DetailRow("Free Disposable Capacity", formatBytes(storage.freeBytes), valueColor = InspectorTheme.NeonTeal)
+            StaggeredFadeInContainer(delayMillis = 120) {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(14.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        DetailRow("Aggregate Storage Capacity", formatBytes(storage.totalBytes), highlight = true)
+                        DetailRow("Allocated/Used Space", formatBytes(storage.usedBytes), valueColor = InspectorTheme.WarmCoral)
+                        DetailRow("Free Disposable Capacity", formatBytes(storage.freeBytes), valueColor = InspectorTheme.NeonTeal)
+                    }
                 }
             }
 
-            // High depth visual progress bar
-            Column(modifier = Modifier.fillMaxWidth()) {
-                Text(
-                    text = "STORAGE GRID RATIO",
-                    fontSize = 11.sp,
-                    fontWeight = FontWeight.Bold,
-                    fontFamily = FontFamily.Monospace,
-                    color = InspectorTheme.TextMuted,
-                    modifier = Modifier.padding(bottom = 6.dp)
-                )
-                
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(18.dp)
-                        .clip(CircleShape)
-                        .background(InspectorTheme.PanelBg)
-                ) {
+            val animStoragePercent by animateFloatAsState(
+                targetValue = storagePercent,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioLowBouncy,
+                    stiffness = Spring.StiffnessMediumLow
+                ),
+                label = "storageProgress"
+            )
+
+            StaggeredFadeInContainer(delayMillis = 200) {
+                // High depth visual progress bar
+                Column(modifier = Modifier.fillMaxWidth()) {
+                    Text(
+                        text = "STORAGE GRID RATIO",
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Bold,
+                        fontFamily = FontFamily.Monospace,
+                        color = InspectorTheme.TextMuted,
+                        modifier = Modifier.padding(bottom = 6.dp)
+                    )
+                    
                     Box(
                         modifier = Modifier
-                            .fillMaxHeight()
-                            .fillMaxWidth(storagePercent)
+                            .fillMaxWidth()
+                            .height(18.dp)
                             .clip(CircleShape)
-                            .background(InspectorTheme.AmberGlow)
-                    )
+                            .background(InspectorTheme.PanelBg)
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxHeight()
+                                .fillMaxWidth(animStoragePercent)
+                                .clip(CircleShape)
+                                .background(InspectorTheme.AmberGlow)
+                        )
+                    }
                 }
             }
         }
@@ -1764,28 +2016,128 @@ fun NetworkDetailScreen(viewModel: DeviceViewModel) {
             Spacer(modifier = Modifier.height(8.dp))
 
             // Radar scan animation graphic
+            val infiniteTransition = rememberInfiniteTransition(label = "radarScan")
+            val radarAngle by infiniteTransition.animateFloat(
+                initialValue = 0f,
+                targetValue = 360f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(3500, easing = LinearEasing),
+                    repeatMode = RepeatMode.Restart
+                ),
+                label = "radarAngle"
+            )
+            val radarPulse by infiniteTransition.animateFloat(
+                initialValue = 0.2f,
+                targetValue = 1.0f,
+                animationSpec = infiniteRepeatable(
+                    animation = tween(1500, easing = EaseInOutSine),
+                    repeatMode = RepeatMode.Reverse
+                ),
+                label = "radarPulse"
+            )
+
+            val tealColor = InspectorTheme.NeonTeal
+            val blueColor = InspectorTheme.NeonBlue
+            val cyanColor = InspectorTheme.NeonCyan
+
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(140.dp)
+                    .height(160.dp)
                     .clip(RoundedCornerShape(14.dp))
                     .background(InspectorTheme.PanelBg),
                 contentAlignment = Alignment.Center
             ) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                    Icon(
-                        imageVector = Icons.Default.Refresh,
-                        contentDescription = "Signals",
-                        tint = InspectorTheme.NeonBlue,
-                        modifier = Modifier.size(54.dp)
+                // Futuristic tactical radar canvas representation
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .padding(12.dp)
+                ) {
+                    val centerOffset = center
+                    val radius = (size.height / 2f) - 6f
+                    
+                    // Outer HUD border ring
+                    drawCircle(
+                        color = blueColor.copy(alpha = 0.25f),
+                        radius = radius,
+                        style = Stroke(width = 1.5.dp.toPx())
                     )
-                    Spacer(modifier = Modifier.height(10.dp))
+                    // Concentric coordinate grid lines
+                    drawCircle(
+                        color = blueColor.copy(alpha = 0.15f),
+                        radius = radius * 0.66f,
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                    drawCircle(
+                        color = blueColor.copy(alpha = 0.08f),
+                        radius = radius * 0.33f,
+                        style = Stroke(width = 1.dp.toPx())
+                    )
+                    
+                    // Axis grid marks
+                    drawLine(
+                        color = blueColor.copy(alpha = 0.08f),
+                        start = Offset(centerOffset.x - radius, centerOffset.y),
+                        end = Offset(centerOffset.x + radius, centerOffset.y),
+                        strokeWidth = 1.1.dp.toPx()
+                    )
+                    drawLine(
+                        color = blueColor.copy(alpha = 0.08f),
+                        start = Offset(centerOffset.x, centerOffset.y - radius),
+                        end = Offset(centerOffset.x, centerOffset.y + radius),
+                        strokeWidth = 1.1.dp.toPx()
+                    )
+                    
+                    // Radar sweep vector rotation
+                    val rad = Math.toRadians((radarAngle - 90).toDouble())
+                    val sweepX = centerOffset.x + radius * kotlin.math.cos(rad).toFloat()
+                    val sweepY = centerOffset.y + radius * kotlin.math.sin(rad).toFloat()
+                    
+                    // Draw sweep beam
+                    drawLine(
+                        color = tealColor.copy(alpha = 0.7f),
+                        start = centerOffset,
+                        end = Offset(sweepX, sweepY),
+                        strokeWidth = 2.dp.toPx()
+                    )
+                    
+                    // Center core pulsing dot
+                    drawCircle(
+                        color = cyanColor,
+                        radius = 4.dp.toPx() * radarPulse,
+                        center = centerOffset
+                    )
+                    
+                    // Active connection target echoes fading in/out
+                    drawCircle(
+                        color = tealColor.copy(alpha = 0.7f * radarPulse),
+                        radius = 4.5.dp.toPx(),
+                        center = Offset(centerOffset.x + radius * 0.42f, centerOffset.y - radius * 0.32f)
+                    )
+                    drawCircle(
+                        color = cyanColor.copy(alpha = 0.5f * (1.2f - radarPulse).coerceIn(0f, 1f)),
+                        radius = 4.0.dp.toPx(),
+                        center = Offset(centerOffset.x - radius * 0.52f, centerOffset.y + radius * 0.18f)
+                    )
+                }
+
+                // Foreground overlay with translucent backing indicating active connection
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomCenter)
+                        .padding(bottom = 12.dp)
+                        .background(InspectorTheme.DarkBg.copy(alpha = 0.75f), RoundedCornerShape(6.dp))
+                        .border(1.dp, InspectorTheme.DividerBg.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 14.dp, vertical = 6.dp)
+                ) {
                     Text(
-                        text = "IP RESOLVED: ${network.ipAddress}",
-                        fontSize = 13.sp,
+                        text = "CONN RESOLVED: ${network.ipAddress}",
+                        fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = InspectorTheme.NeonTeal
+                        color = InspectorTheme.NeonTeal,
+                        letterSpacing = 1.sp
                     )
                 }
             }
@@ -1984,45 +2336,80 @@ fun LiveScopePlotWaves(values: List<Float>) {
 
     val cyanColor = InspectorTheme.NeonCyan
     val coralColor = InspectorTheme.WarmCoral
+    val tealColor = InspectorTheme.NeonTeal
 
     Canvas(
         modifier = Modifier
             .fillMaxWidth()
-            .height(70.dp)
-            .background(InspectorTheme.DarkBg)
+            .height(115.dp)
+            .background(Color(0xFF04070F))
+            .border(1.dp, InspectorTheme.DividerBg, RoundedCornerShape(4.dp))
     ) {
         val w = size.width
         val h = size.height
         val centerY = h / 2f
         
-        // gridlines
-        drawLine(Color(0xFF1E293B), Offset(0f, centerY), Offset(w, centerY), strokeWidth = 1f)
+        // Draw elegant oscilloscope grid lines
+        // 1. Horizontal gridlines
+        val gridRows = 6
+        for (row in 1 until gridRows) {
+            val y = (h / gridRows) * row
+            drawLine(
+                color = if (row == gridRows / 2) Color(0xFF334155) else Color(0xFF1E293B),
+                start = Offset(0f, y),
+                end = Offset(w, y),
+                strokeWidth = if (row == gridRows / 2) 1.5f else 1f
+            )
+        }
+        
+        // 2. Vertical gridlines
+        val stepX = w / 24f
+        for (col in 1..23) {
+            val cx = col * stepX
+            drawLine(
+                color = Color(0xFF1E293B).copy(alpha = 0.5f),
+                start = Offset(cx, 0f),
+                end = Offset(cx, h),
+                strokeWidth = 1f
+            )
+        }
         
         if (rollingHistory.size > 1) {
-            val stepX = w / 24f
-            
             // X Wave (Cyan)
             for (i in 0 until rollingHistory.size - 1) {
                 val val1 = rollingHistory[i].getOrElse(0) { 0f }
                 val val2 = rollingHistory[i+1].getOrElse(0) { 0f }
                 
                 drawLine(
-                    color = cyanColor,
-                    start = Offset(i * stepX, centerY - (val1 * 3f).coerceIn(-centerY, centerY)),
-                    end = Offset((i + 1) * stepX, centerY - (val2 * 3f).coerceIn(-centerY, centerY)),
+                    color = cyanColor.copy(alpha = 0.85f),
+                    start = Offset(i * stepX, centerY - (val1 * 5f).coerceIn(-centerY + 10f, centerY - 10f)),
+                    end = Offset((i + 1) * stepX, centerY - (val2 * 5f).coerceIn(-centerY + 10f, centerY - 10f)),
                     strokeWidth = 2.dp.toPx()
                 )
             }
             
-            // Y Wave (Magenta)
+            // Y Wave (Magenta/Coral)
             for (i in 0 until rollingHistory.size - 1) {
                 val val1 = rollingHistory[i].getOrElse(1) { 0f }
                 val val2 = rollingHistory[i+1].getOrElse(1) { 0f }
                 
                 drawLine(
-                    color = coralColor,
-                    start = Offset(i * stepX, centerY - (val1 * 3f).coerceIn(-centerY, centerY)),
-                    end = Offset((i + 1) * stepX, centerY - (val2 * 3f).coerceIn(-centerY, centerY)),
+                    color = coralColor.copy(alpha = 0.85f),
+                    start = Offset(i * stepX, centerY - (val1 * 5f).coerceIn(-centerY + 10f, centerY - 10f)),
+                    end = Offset((i + 1) * stepX, centerY - (val2 * 5f).coerceIn(-centerY + 10f, centerY - 10f)),
+                    strokeWidth = 2.dp.toPx()
+                )
+            }
+
+            // Z Wave (NeonTeal)
+            for (i in 0 until rollingHistory.size - 1) {
+                val val1 = rollingHistory[i].getOrElse(2) { 0f }
+                val val2 = rollingHistory[i+1].getOrElse(2) { 0f }
+                
+                drawLine(
+                    color = tealColor.copy(alpha = 0.85f),
+                    start = Offset(i * stepX, centerY - (val1 * 5f).coerceIn(-centerY + 10f, centerY - 10f)),
+                    end = Offset((i + 1) * stepX, centerY - (val2 * 5f).coerceIn(-centerY + 10f, centerY - 10f)),
                     strokeWidth = 2.dp.toPx()
                 )
             }
@@ -2172,6 +2559,17 @@ fun PhoneVisualSchematic(display: DisplayInfo) {
 fun BenchmarkDetailScreen(viewModel: DeviceViewModel) {
     val benchmark by viewModel.benchmarkState.collectAsState()
 
+    val infiniteTransitionGlob = rememberInfiniteTransition(label = "benchmarkPulseGlob")
+    val glowColorFactor by infiniteTransitionGlob.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2200, easing = EaseInOutSine),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "glowColorFactor"
+    )
+
     Scaffold(
         topBar = {
             SubScreenTopBar("Hardware Benchmark", onBack = { viewModel.navigateTo("dashboard") })
@@ -2319,7 +2717,9 @@ fun BenchmarkDetailScreen(viewModel: DeviceViewModel) {
                     ) {
                         // Overall TIER Card
                         Card(
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .drawCyberCorners(InspectorTheme.AmberGlow, glowColorFactor),
                             shape = RoundedCornerShape(16.dp),
                             colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
                             border = BorderStroke(2.dp, InspectorTheme.AmberGlow)
@@ -2518,6 +2918,23 @@ fun SystemTestScreen(viewModel: DeviceViewModel) {
 
     val context = LocalContext.current
 
+    val infiniteTransition = rememberInfiniteTransition(label = "diagPulse")
+    val glowFactor by infiniteTransition.animateFloat(
+        initialValue = 0.4f,
+        targetValue = 1.0f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(2000, easing = EaseInOutSine),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "diagGlow"
+    )
+
+    val currentGlowColor = when (diagState) {
+        DiagnosticState.IDLE -> InspectorTheme.NeonCyan
+        DiagnosticState.RUNNING -> InspectorTheme.AmberGlow
+        DiagnosticState.FINISHED -> InspectorTheme.NeonTeal
+    }
+
     Scaffold(
         topBar = {
             SubScreenTopBar("System & Sensors", onBack = { viewModel.navigateTo("dashboard") })
@@ -2536,7 +2953,9 @@ fun SystemTestScreen(viewModel: DeviceViewModel) {
 
             // Main Gauge Card
             Card(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .drawCyberCorners(currentGlowColor, glowFactor),
                 shape = RoundedCornerShape(20.dp),
                 colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
                 border = BorderStroke(1.dp, InspectorTheme.DividerBg)
@@ -2849,46 +3268,112 @@ fun SystemTestScreen(viewModel: DeviceViewModel) {
 
 @Composable
 fun SubScreenTopBar(title: String, onBack: () -> Unit) {
+    val dividerColor = InspectorTheme.DividerBg
+    val neonCyan = InspectorTheme.NeonCyan
+    val panelBg = InspectorTheme.PanelBg
+    val textWhite = InspectorTheme.TextWhite
+
+    val infiniteTransition = rememberInfiniteTransition(label = "topBarGlow")
+    val barGlowAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.3f,
+        targetValue = 0.8f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(1500, easing = EaseInOutSine),
+            repeatMode = RepeatMode.Reverse
+        ),
+        label = "barGlowAlpha"
+    )
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .background(InspectorTheme.PanelBg)
+            .background(panelBg)
             .statusBarsPadding()
             .padding(vertical = 4.dp)
     ) {
         Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(end = 16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween
         ) {
-            val backInteractionSource = remember { MutableInteractionSource() }
-            val backIsPressed by backInteractionSource.collectIsPressedAsState()
-            val backOffset by animateDpAsState(
-                targetValue = if (backIsPressed) (-4).dp else 0.dp,
-                animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
-                label = "backPressOffset"
-            )
-
-            IconButton(
-                onClick = onBack,
-                interactionSource = backInteractionSource,
-                modifier = Modifier
-                    .padding(start = 8.dp)
-                    .testTag("back_button")
+            Row(
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Icon(
-                    imageVector = Icons.Default.ArrowBack, // Standard default ArrowBack
-                    contentDescription = "Return home",
-                    tint = InspectorTheme.TextWhite,
-                    modifier = Modifier.offset(x = backOffset)
+                val backInteractionSource = remember { MutableInteractionSource() }
+                val backIsPressed by backInteractionSource.collectIsPressedAsState()
+                val backOffset by animateDpAsState(
+                    targetValue = if (backIsPressed) (-4).dp else 0.dp,
+                    animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
+                    label = "backPressOffset"
+                )
+
+                IconButton(
+                    onClick = onBack,
+                    interactionSource = backInteractionSource,
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .testTag("back_button")
+                ) {
+                    Icon(
+                        imageVector = Icons.Default.ArrowBack, // Standard default ArrowBack
+                        contentDescription = "Return home",
+                        tint = textWhite,
+                        modifier = Modifier.offset(x = backOffset)
+                    )
+                }
+                Text(
+                    text = title.uppercase(Locale.getDefault()),
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = textWhite,
+                    modifier = Modifier.padding(start = 8.dp)
                 )
             }
-            Text(
-                text = title.uppercase(Locale.getDefault()),
-                fontSize = 16.sp,
-                fontWeight = FontWeight.Bold,
-                fontFamily = FontFamily.Monospace,
-                color = InspectorTheme.TextWhite,
-                modifier = Modifier.padding(start = 8.dp)
+
+            // Beautiful futuristic status badge at top right
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(neonCyan.copy(alpha = 0.12f))
+                    .border(1.dp, neonCyan.copy(alpha = barGlowAlpha), RoundedCornerShape(4.dp))
+                    .padding(horizontal = 8.dp, vertical = 3.dp)
+            ) {
+                Text(
+                    text = "SYS_STABLE_OK",
+                    fontSize = 8.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Black,
+                    color = neonCyan,
+                    letterSpacing = 1.sp
+                )
+            }
+        }
+        
+        // Gorgeous bottom active divider line with neon dash accent
+        Canvas(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(3.dp)
+                .padding(top = 1.dp)
+        ) {
+            // Draw dark background line
+            drawLine(
+                color = dividerColor,
+                start = Offset(0f, 0f),
+                end = Offset(size.width, 0f),
+                strokeWidth = 1f
+            )
+            // Draw neon sweep overlay representing dynamic register transfer
+            val lineLength = size.width * 0.25f
+            val startX = (size.width - lineLength) * barGlowAlpha
+            drawLine(
+                color = neonCyan,
+                start = Offset(startX, 0f),
+                end = Offset(startX + lineLength, 0f),
+                strokeWidth = 2.dp.toPx()
             )
         }
     }

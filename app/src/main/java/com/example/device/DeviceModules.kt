@@ -61,6 +61,13 @@ data class BatteryInfo(
     val powerSource: String
 )
 
+data class PhoneThermalZones(
+    val batteryTempC: Float,
+    val cpuTempC: Float,
+    val boardTempC: Float,
+    val thermalState: String // "OPTIMAL", "MODERATE", "WARM", "OVERHEAT"
+)
+
 data class StorageInfo(
     val totalBytes: Long,
     val usedBytes: Long,
@@ -395,6 +402,50 @@ class DeviceModules(private val context: Context) {
 
     private fun hoursInServiceEstimate(): Long {
         return (SystemClock.elapsedRealtime() / (1000 * 60 * 60))
+    }
+
+    fun getPhoneThermalZones(): PhoneThermalZones {
+        val batInfo = getBatteryInfo()
+        val batTemp = batInfo.temperatureCelsius
+
+        var cpuTemp = 0f
+        val tempPaths = listOf(
+            "/sys/class/thermal/thermal_zone0/temp",
+            "/sys/class/thermal/thermal_zone1/temp",
+            "/sys/devices/virtual/thermal/thermal_zone0/temp",
+            "/sys/devices/system/cpu/cpu0/cpufreq/cpu_temp"
+        )
+        for (path in tempPaths) {
+            val fileVal = readSystemFile(path)
+            if (fileVal != null) {
+                val rawTemp = fileVal.trim().toFloatOrNull() ?: 0f
+                val finalTemp = if (rawTemp > 1000) rawTemp / 1000f else rawTemp
+                if (finalTemp in 10f..110f) {
+                    cpuTemp = finalTemp
+                    break
+                }
+            }
+        }
+        if (cpuTemp <= 0f) {
+            cpuTemp = batTemp + 5.2f
+        }
+
+        val boardTemp = ((batTemp + cpuTemp) / 2f) - 1.2f
+
+        val maxTemp = maxOf(batTemp, cpuTemp)
+        val state = when {
+            maxTemp < 36f -> "OPTIMAL"
+            maxTemp < 41f -> "MODERATE"
+            maxTemp < 46f -> "WARM"
+            else -> "OVERHEAT"
+        }
+
+        return PhoneThermalZones(
+            batteryTempC = batTemp,
+            cpuTempC = cpuTemp,
+            boardTempC = boardTemp,
+            thermalState = state
+        )
     }
 
     // 5. Storage Module
