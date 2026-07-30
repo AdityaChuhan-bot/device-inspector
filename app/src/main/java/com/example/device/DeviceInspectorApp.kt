@@ -15,6 +15,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.*
 import androidx.compose.material3.*
+import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -310,6 +311,7 @@ fun DeviceInspectorApp(viewModel: DeviceViewModel) {
                     "display" -> DisplayDetailScreen(viewModel)
                     "benchmark" -> BenchmarkDetailScreen(viewModel)
                     "system_test" -> SystemTestScreen(viewModel)
+                    "os" -> OsDetailScreen(viewModel)
                     else -> DashboardScreen(viewModel)
                 }
             }
@@ -512,6 +514,7 @@ fun StaggeredFadeInContainer(
 
 // ================= DASHBOARD SCREEN =================
 
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun DashboardScreen(viewModel: DeviceViewModel) {
     val summary by viewModel.deviceSummary.collectAsState()
@@ -525,10 +528,11 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
     
     val diagState by viewModel.diagnosticState.collectAsState()
     val diagTests by viewModel.diagnosticTests.collectAsState()
+    val isRefreshing by viewModel.isRefreshing.collectAsState()
 
-    var refreshTrigger by remember { mutableStateOf(0) }
+    var manualTrigger by remember { mutableStateOf(0) }
     val rotationAnim by animateFloatAsState(
-        targetValue = refreshTrigger * 360f,
+        targetValue = manualTrigger * 360f,
         animationSpec = spring(
             dampingRatio = Spring.DampingRatioLowBouncy,
             stiffness = Spring.StiffnessLow
@@ -595,8 +599,8 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
 
                         IconButton(
                             onClick = {
-                                refreshTrigger++
-                                viewModel.refreshStaticData()
+                                manualTrigger++
+                                viewModel.refreshDashboard()
                             },
                             modifier = Modifier
                                 .size(40.dp)
@@ -621,13 +625,20 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
-        LazyColumn(
+        PullToRefreshBox(
+            isRefreshing = isRefreshing,
+            onRefresh = { viewModel.refreshDashboard() },
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(16.dp)
+                .testTag("dashboard_swipe_refresh")
         ) {
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(16.dp)
+            ) {
             item { Spacer(modifier = Modifier.height(4.dp)) }
 
             // Overview Device Information Banner
@@ -650,7 +661,10 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
                 )
 
                 Card(
-                    modifier = Modifier.fillMaxWidth(),
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable { viewModel.navigateTo("os") }
+                        .testTag("btn_overview_os"),
                     shape = RoundedCornerShape(28.dp),
                     colors = CardDefaults.cardColors(containerColor = bannerBg),
                     border = BorderStroke(1.5.dp, InspectorTheme.NeonCyan.copy(alpha = glowAlpha))
@@ -850,6 +864,21 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
                             onClick = { viewModel.navigateTo("display") }
                         )
                     }
+
+                    // Android OS Details Card
+                    val osDetails by viewModel.osDetails.collectAsState()
+                    StaggeredFadeInContainer(delayMillis = 380) {
+                        DashboardLinkCard(
+                            title = "Android Operating System",
+                            subtitle = "${osDetails.androidVersion} • ${osDetails.codeName}",
+                            infoText = "API Level ${osDetails.sdkInt} • Security: ${osDetails.securityPatch}",
+                            badge = osDetails.buildType,
+                            badgeBg = InspectorTheme.NeonCyan,
+                            icon = Icons.Default.Info,
+                            testTag = "btn_nav_os",
+                            onClick = { viewModel.navigateTo("os") }
+                        )
+                    }
  
                     // Benchmark Performance Unit
                     StaggeredFadeInContainer(delayMillis = 400) {
@@ -902,6 +931,7 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
             item { Spacer(modifier = Modifier.height(24.dp)) }
         }
     }
+}
 }
 
 @Composable
@@ -1262,6 +1292,12 @@ fun BatteryDetailScreen(viewModel: DeviceViewModel) {
     val scanProgress by viewModel.thermalScanProgress.collectAsState()
     val thermalScore by viewModel.thermalScore.collectAsState()
 
+    val isCoolingDown by viewModel.isCoolingDown.collectAsState()
+    val coolingProgress by viewModel.coolingProgress.collectAsState()
+    val coolingStage by viewModel.coolingStage.collectAsState()
+    val tempDropAmount by viewModel.tempDropAmount.collectAsState()
+    val initialPeakTemp by viewModel.initialPeakTemp.collectAsState()
+
     Scaffold(
         topBar = {
             SubScreenTopBar("Battery & Temp Monitor", onBack = { viewModel.navigateTo("dashboard") })
@@ -1394,6 +1430,186 @@ fun BatteryDetailScreen(viewModel: DeviceViewModel) {
             // REAL-TIME THERMAL OSCILLOSCOPE GRAPH
             item {
                 RealtimeThermalGraph(tempHistory = tempHistory)
+            }
+
+            // REAL-TIME TEMPERATURE DROP CONTROLLER CARD
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawCyberCorners(InspectorTheme.NeonTeal, 0.9f)
+                        .testTag("temp_drop_controller_card"),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.5.dp, if (isCoolingDown) InspectorTheme.NeonTeal else InspectorTheme.DividerBg)
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(18.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(InspectorTheme.NeonTeal.copy(alpha = 0.15f))
+                                        .border(1.dp, InspectorTheme.NeonTeal.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Refresh,
+                                        contentDescription = null,
+                                        tint = InspectorTheme.NeonTeal,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = "REAL-TIME TEMPERATURE DROP",
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        color = InspectorTheme.TextMuted,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Text(
+                                        text = if (isCoolingDown) "ACTIVE COOLING IN PROGRESS" else "REAL-TIME THERMAL DISSIPATION",
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = if (isCoolingDown) InspectorTheme.NeonTeal else InspectorTheme.TextWhite
+                                    )
+                                }
+                            }
+
+                            if (tempDropAmount > 0f) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(InspectorTheme.NeonTeal.copy(alpha = 0.2f))
+                                        .border(1.dp, InspectorTheme.NeonTeal, RoundedCornerShape(8.dp))
+                                        .padding(horizontal = 10.dp, vertical = 5.dp)
+                                ) {
+                                    Text(
+                                        text = String.format(Locale.getDefault(), "▼ -%.1f°C", tempDropAmount),
+                                        fontSize = 13.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Black,
+                                        color = InspectorTheme.NeonTeal
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Real-Time Temperature Drop Live Metrics
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(InspectorTheme.DarkBg.copy(alpha = 0.6f))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceAround,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(text = "PEAK TEMP", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(
+                                    text = if (initialPeakTemp > 0f) String.format(Locale.getDefault(), "%.1f°C", initialPeakTemp) else String.format(Locale.getDefault(), "%.1f°C", battery.temperatureCelsius),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = InspectorTheme.WarmCoral
+                                )
+                            }
+
+                            Icon(
+                                imageVector = Icons.Default.KeyboardArrowDown,
+                                contentDescription = "Drop Indicator",
+                                tint = InspectorTheme.NeonTeal,
+                                modifier = Modifier.size(24.dp)
+                            )
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(text = "CURRENT TEMP", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(
+                                    text = String.format(Locale.getDefault(), "%.1f°C", battery.temperatureCelsius),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = InspectorTheme.NeonCyan
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(text = "DROP DELTA", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(
+                                    text = String.format(Locale.getDefault(), "-%.1f°C", tempDropAmount),
+                                    fontSize = 15.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = InspectorTheme.NeonTeal
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        if (isCoolingDown) {
+                            Text(
+                                text = coolingStage,
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                color = InspectorTheme.NeonTeal,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(6.dp))
+                            LinearProgressIndicator(
+                                progress = coolingProgress,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(8.dp)
+                                    .clip(RoundedCornerShape(4.dp)),
+                                color = InspectorTheme.NeonTeal,
+                                trackColor = InspectorTheme.DividerBg
+                            )
+                            Spacer(modifier = Modifier.height(12.dp))
+                        }
+
+                        Button(
+                            onClick = { viewModel.startRealTimeCoolDown() },
+                            enabled = !isCoolingDown,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("btn_trigger_temp_drop"),
+                            shape = RoundedCornerShape(12.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = InspectorTheme.NeonTeal,
+                                contentColor = InspectorTheme.DarkBg
+                            )
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Text(
+                                    text = if (isCoolingDown) "COOLING DOWN IN PROGRESS..." else "TRIGGER REAL-TIME TEMP DROP",
+                                    fontWeight = FontWeight.Bold,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontSize = 12.sp
+                                )
+                            }
+                        }
+                    }
+                }
             }
 
             // DUAL-COLUMN HIGH-DENSITY METRICS ROW
@@ -3516,4 +3732,191 @@ fun formatBytes(bytes: Long): String {
     val units = arrayOf("B", "KB", "MB", "GB", "TB")
     val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt()
     return String.format(Locale.getDefault(), "%.1f %s", bytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
+}
+
+// ================= OS DETAILS SCREEN =================
+
+@Composable
+fun OsDetailScreen(viewModel: DeviceViewModel) {
+    val osDetails by viewModel.osDetails.collectAsState()
+
+    Scaffold(
+        topBar = {
+            SubScreenTopBar("Android OS Details", onBack = { viewModel.navigateTo("dashboard") })
+        },
+        containerColor = InspectorTheme.DarkBg
+    ) { innerPadding ->
+        LazyColumn(
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 20.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
+        ) {
+            item { Spacer(modifier = Modifier.height(4.dp)) }
+
+            // Hero Banner Card for Android OS Version
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawCyberCorners(InspectorTheme.NeonCyan, 0.9f)
+                        .testTag("os_hero_card"),
+                    shape = RoundedCornerShape(24.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.5.dp, InspectorTheme.NeonCyan.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(20.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp)
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(52.dp)
+                                    .clip(RoundedCornerShape(16.dp))
+                                    .background(InspectorTheme.NeonCyan.copy(alpha = 0.15f))
+                                    .border(1.dp, InspectorTheme.NeonCyan.copy(alpha = 0.4f), RoundedCornerShape(16.dp)),
+                                contentAlignment = Alignment.Center
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Info,
+                                    contentDescription = null,
+                                    tint = InspectorTheme.NeonCyan,
+                                    modifier = Modifier.size(28.dp)
+                                )
+                            }
+                            Column {
+                                Text(
+                                    text = osDetails.androidVersion,
+                                    fontSize = 22.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = InspectorTheme.TextWhite
+                                )
+                                Text(
+                                    text = "Codename: ${osDetails.codeName} • API Level ${osDetails.sdkInt}",
+                                    fontSize = 13.sp,
+                                    color = InspectorTheme.NeonCyan,
+                                    fontWeight = FontWeight.Medium
+                                )
+                            }
+                        }
+
+                        Divider(
+                            modifier = Modifier.padding(vertical = 14.dp),
+                            color = InspectorTheme.DividerBg
+                        )
+
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Column {
+                                Text(text = "BUILD TYPE", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(text = osDetails.buildType, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = InspectorTheme.NeonTeal)
+                            }
+                            Column(horizontalAlignment = Alignment.End) {
+                                Text(text = "SECURITY PATCH", fontSize = 10.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(text = osDetails.securityPatch, fontSize = 13.sp, fontWeight = FontWeight.Bold, color = InspectorTheme.AmberGlow)
+                            }
+                        }
+                    }
+                }
+            }
+
+            // Section 1: Core System & Build Specification
+            item {
+                Text(
+                    text = "CORE SYSTEM METADATA",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = InspectorTheme.TextMuted,
+                    letterSpacing = 1.sp
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        DetailRow("Android Release Version", osDetails.androidVersion, highlight = true)
+                        DetailRow("Version Codename", osDetails.codeName, valueColor = InspectorTheme.NeonCyan)
+                        DetailRow("SDK / API Level", "API ${osDetails.sdkInt}", valueColor = InspectorTheme.NeonTeal)
+                        DetailRow("Build ID / Display", osDetails.buildId)
+                        DetailRow("Security Patch Date", osDetails.securityPatch, valueColor = InspectorTheme.AmberGlow)
+                        DetailRow("Build Tags", osDetails.buildTags)
+                        DetailRow("Build Type", osDetails.buildType)
+                    }
+                }
+            }
+
+            // Section 2: Firmware & Hardware Identifiers
+            item {
+                Text(
+                    text = "FIRMWARE & HARDWARE IDENTIFIERS",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = InspectorTheme.TextMuted,
+                    letterSpacing = 1.sp
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        DetailRow("Brand", osDetails.brand)
+                        DetailRow("Product / Board", osDetails.productBoard)
+                        DetailRow("Bootloader Version", osDetails.bootloader)
+                        DetailRow("Baseband / Radio Version", osDetails.radioVersion)
+                        DetailRow("System Fingerprint", osDetails.fingerprint)
+                    }
+                }
+            }
+
+            // Section 3: Runtime & Kernel Architecture
+            item {
+                Text(
+                    text = "RUNTIME & KERNEL ENVIRONMENT",
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Bold,
+                    fontFamily = FontFamily.Monospace,
+                    color = InspectorTheme.TextMuted,
+                    letterSpacing = 1.sp
+                )
+            }
+
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        DetailRow("Linux Kernel Release", osDetails.kernelVersion, highlight = true)
+                        DetailRow("Java Virtual Machine (ART)", osDetails.javaVmVersion, valueColor = InspectorTheme.NeonTeal)
+                        DetailRow("OS Architecture", osDetails.osArch, valueColor = InspectorTheme.NeonCyan)
+                        DetailRow("Locale & Timezone", osDetails.localeTimezone)
+                    }
+                }
+            }
+
+            item { Spacer(modifier = Modifier.height(24.dp)) }
+        }
+    }
 }

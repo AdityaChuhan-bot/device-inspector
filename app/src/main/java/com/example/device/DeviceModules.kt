@@ -36,6 +36,25 @@ data class DeviceSummary(
     val kernelVersion: String
 )
 
+data class OsDetails(
+    val androidVersion: String,
+    val codeName: String,
+    val sdkInt: Int,
+    val buildId: String,
+    val securityPatch: String,
+    val buildTags: String,
+    val fingerprint: String,
+    val bootloader: String,
+    val radioVersion: String,
+    val kernelVersion: String,
+    val javaVmVersion: String,
+    val osArch: String,
+    val brand: String,
+    val productBoard: String,
+    val buildType: String,
+    val localeTimezone: String
+)
+
 data class CpuInfo(
     val model: String,
     val architecture: String,
@@ -163,6 +182,56 @@ class DeviceModules(private val context: Context) {
             uptime = uptimeStr,
             sdkLevel = Build.VERSION.SDK_INT,
             kernelVersion = getKernelVersion()
+        )
+    }
+
+    fun getOsDetails(): OsDetails {
+        val sdk = Build.VERSION.SDK_INT
+        val codeName = when (sdk) {
+            35 -> "Vanilla Ice Cream"
+            34 -> "Upside Down Cake"
+            33 -> "Tiramisu"
+            32 -> "Snow Cone v2"
+            31 -> "Snow Cone"
+            30 -> "Red Velvet Cake"
+            29 -> "Quince Tart"
+            28 -> "Pie"
+            27, 26 -> "Oreo"
+            25, 24 -> "Nougat"
+            else -> "Android $sdk"
+        }
+
+        val radioVer = try { Build.getRadioVersion() ?: "N/A" } catch (e: Exception) { "N/A" }
+        val vmName = System.getProperty("java.vm.name") ?: "ART"
+        val vmVer = System.getProperty("java.vm.version") ?: "2.1.0"
+        val arch = System.getProperty("os.arch") ?: "aarch64"
+
+        val securityPatch = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            Build.VERSION.SECURITY_PATCH ?: "N/A"
+        } else {
+            "N/A"
+        }
+
+        val loc = "${Locale.getDefault().displayName} (${Locale.getDefault().country})"
+        val tz = java.util.TimeZone.getDefault().displayName
+
+        return OsDetails(
+            androidVersion = "Android ${Build.VERSION.RELEASE}",
+            codeName = codeName,
+            sdkInt = sdk,
+            buildId = Build.DISPLAY.ifEmpty { Build.ID },
+            securityPatch = securityPatch,
+            buildTags = Build.TAGS ?: "release-keys",
+            fingerprint = Build.FINGERPRINT,
+            bootloader = Build.BOOTLOADER.ifEmpty { "N/A" },
+            radioVersion = radioVer.ifEmpty { "N/A" },
+            kernelVersion = getKernelVersion(),
+            javaVmVersion = "$vmName $vmVer",
+            osArch = arch,
+            brand = Build.BRAND.capitalizeLocale(),
+            productBoard = "${Build.PRODUCT} (${Build.BOARD})",
+            buildType = "${Build.TYPE.uppercase(Locale.getDefault())} BUILD",
+            localeTimezone = "$loc • $tz"
         )
     }
 

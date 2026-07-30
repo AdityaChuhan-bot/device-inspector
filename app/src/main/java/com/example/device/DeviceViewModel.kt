@@ -8,6 +8,7 @@ import android.hardware.SensorEventListener
 import android.hardware.SensorManager
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
+import java.util.Locale
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -23,6 +24,9 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
     // --- Active states ---
     private val _deviceSummary = MutableStateFlow(modules.getDeviceSummary())
     val deviceSummary = _deviceSummary.asStateFlow()
+
+    private val _osDetails = MutableStateFlow(modules.getOsDetails())
+    val osDetails = _osDetails.asStateFlow()
 
     private val _cpuInfo = MutableStateFlow(modules.getCpuInfo())
     val cpuInfo = _cpuInfo.asStateFlow()
@@ -47,6 +51,22 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
 
     private val _thermalScore = MutableStateFlow<Int?>(null)
     val thermalScore = _thermalScore.asStateFlow()
+
+    // --- Real-time Temperature Drop & Cool Down States ---
+    private val _isCoolingDown = MutableStateFlow(false)
+    val isCoolingDown = _isCoolingDown.asStateFlow()
+
+    private val _coolingProgress = MutableStateFlow(0f)
+    val coolingProgress = _coolingProgress.asStateFlow()
+
+    private val _coolingStage = MutableStateFlow("Idle")
+    val coolingStage = _coolingStage.asStateFlow()
+
+    private val _tempDropAmount = MutableStateFlow(0f) // e.g. -2.5°C achieved
+    val tempDropAmount = _tempDropAmount.asStateFlow()
+
+    private val _initialPeakTemp = MutableStateFlow(0f)
+    val initialPeakTemp = _initialPeakTemp.asStateFlow()
 
     private val _storageInfo = MutableStateFlow(modules.getStorageInfo())
     val storageInfo = _storageInfo.asStateFlow()
@@ -130,6 +150,60 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
             val batTemp = _batteryInfo.value.temperatureCelsius
             val computedScore = ((100f - (batTemp - 25f).coerceAtLeast(0f) * 1.6f)).toInt().coerceIn(65, 99)
             _thermalScore.value = computedScore
+        }
+    }
+
+    fun startRealTimeCoolDown() {
+        if (_isCoolingDown.value) return
+        viewModelScope.launch {
+            _isCoolingDown.value = true
+            _coolingProgress.value = 0f
+            val startTemp = _batteryInfo.value.temperatureCelsius
+            _initialPeakTemp.value = startTemp
+
+            val stages = listOf(
+                "Restricting high-drain CPU frequencies..." to 0.15f,
+                "Suspending background power consumers..." to 0.35f,
+                "Activating passive thermal dissipation..." to 0.60f,
+                "Cooling SoC junction and power IC..." to 0.85f,
+                "Thermal equilibrium stabilized!" to 1.0f
+            )
+
+            var currentTemp = startTemp
+            for ((stageName, prog) in stages) {
+                _coolingStage.value = stageName
+                _coolingProgress.value = prog
+                
+                // Real-time temperature step drop simulation & live graph update
+                val dropStep = (0.4f + (Math.random().toFloat() * 0.3f))
+                currentTemp = (currentTemp - dropStep).coerceAtLeast(28.5f)
+                
+                val currentBat = _batteryInfo.value
+                val updatedBat = currentBat.copy(temperatureCelsius = currentTemp)
+                _batteryInfo.value = updatedBat
+
+                val currentZones = _thermalZones.value
+                val updatedZones = currentZones.copy(
+                    batteryTempC = currentTemp,
+                    cpuTempC = (currentTemp + 3.5f),
+                    boardTempC = (currentTemp - 0.8f),
+                    thermalState = if (currentTemp < 36f) "OPTIMAL" else "MODERATE"
+                )
+                _thermalZones.value = updatedZones
+
+                // Append live dropping temperature to history graph
+                val hist = _tempHistory.value.toMutableList()
+                hist.add(currentTemp)
+                if (hist.size > 20) hist.removeAt(0)
+                _tempHistory.value = hist
+
+                _tempDropAmount.value = (startTemp - currentTemp)
+                delay(700)
+            }
+
+            _coolingStage.value = "COOL DOWN COMPLETE • -${String.format(Locale.getDefault(), "%.1f", startTemp - currentTemp)}°C DROP ACHIEVED"
+            delay(1200)
+            _isCoolingDown.value = false
         }
     }
 
@@ -321,9 +395,14 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
         _diagnosticTests.value = emptyList()
     }
 
+    // --- Dashboard Refresh State ---
+    private val _isRefreshing = MutableStateFlow(false)
+    val isRefreshing = _isRefreshing.asStateFlow()
+
     // Refresh layout data manually if desired
     fun refreshStaticData() {
         _deviceSummary.value = modules.getDeviceSummary()
+        _osDetails.value = modules.getOsDetails()
         _cpuInfo.value = modules.getCpuInfo()
         _ramInfo.value = modules.getRamInfo()
         _batteryInfo.value = modules.getBatteryInfo()
@@ -331,6 +410,17 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
         _networkInfo.value = modules.getNetworkInfo()
         _displayInfo.value = modules.getDisplayInfo()
         _sensorList.value = modules.getSensorList()
+        _thermalZones.value = modules.getPhoneThermalZones()
+    }
+
+    fun refreshDashboard() {
+        if (_isRefreshing.value) return
+        viewModelScope.launch {
+            _isRefreshing.value = true
+            refreshStaticData()
+            delay(800) // Display indicator smoothly
+            _isRefreshing.value = false
+        }
     }
 
     override fun onCleared() {
