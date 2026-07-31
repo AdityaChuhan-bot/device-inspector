@@ -26,6 +26,13 @@ import kotlin.math.sqrt
 
 // --- Data Structures ---
 
+data class HardwareInfo(
+    val cpu: String,
+    val ram: String,
+    val battery: String,
+    val screenResolution: String
+)
+
 data class DeviceSummary(
     val deviceName: String,
     val androidVersion: String,
@@ -849,6 +856,32 @@ class DeviceModules(private val context: Context) {
             refreshRate = refreshRate,
             dpi = dpi,
             screenSizeInches = finalDiag
+        )
+    }
+
+    // 9. Hardware Summary Fetcher
+    fun getHardwareInfo(): HardwareInfo {
+        val cpuModel = Build.HARDWARE.takeIf { !it.isNullOrBlank() && it != "unknown" }
+            ?: Build.BOARD.takeIf { !it.isNullOrBlank() && it != "unknown" }
+            ?: getCpuHardwareFromProc().takeIf { it.isNotBlank() }
+            ?: "${Build.MANUFACTURER} ${Build.MODEL}"
+
+        val ram = getRamInfo()
+        val totalRamGb = String.format(Locale.getDefault(), "%.2f GB", ram.totalBytes / (1024f * 1024f * 1024f))
+        val availRamGb = String.format(Locale.getDefault(), "%.2f GB", ram.freeBytes / (1024f * 1024f * 1024f))
+        val ramFormatted = "$totalRamGb ($availRamGb free)"
+
+        val bat = getBatteryInfo()
+        val batteryFormatted = "${bat.percentage}% (${bat.chargingStatus}, ${bat.healthStatus})"
+
+        val disp = getDisplayInfo()
+        val resFormatted = "${disp.resolution} (${disp.dpi} DPI)"
+
+        return HardwareInfo(
+            cpu = cpuModel,
+            ram = ramFormatted,
+            battery = batteryFormatted,
+            screenResolution = resFormatted
         )
     }
 }

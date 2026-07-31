@@ -551,6 +551,7 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
     val network by viewModel.networkInfo.collectAsState()
     val sensors by viewModel.sensorList.collectAsState()
     val display by viewModel.displayInfo.collectAsState()
+    val hardwareInfo by viewModel.hardwareInfo.collectAsState()
     
     val diagState by viewModel.diagnosticState.collectAsState()
     val diagTests by viewModel.diagnosticTests.collectAsState()

@@ -105,6 +105,9 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
     private val _displayInfo = MutableStateFlow(modules.getDisplayInfo())
     val displayInfo = _displayInfo.asStateFlow()
 
+    private val _hardwareInfo = MutableStateFlow(modules.getHardwareInfo())
+    val hardwareInfo = _hardwareInfo.asStateFlow()
+
     private val _sensorList = MutableStateFlow(modules.getSensorList())
     val sensorList = _sensorList.asStateFlow()
 
@@ -151,6 +154,7 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
                     _batteryInfo.value = updatedBat
                     _networkInfo.value = updatedNet
                     _thermalZones.value = updatedZones
+                    _hardwareInfo.value = modules.getHardwareInfo()
 
                     // Append network throughput history
                     val netDl = updatedNet.downloadSpeedKbps
