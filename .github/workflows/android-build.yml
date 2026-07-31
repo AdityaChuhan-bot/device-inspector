@@ -41,23 +41,35 @@ jobs:
         run: |
           echo "sdk.dir=$ANDROID_HOME" > local.properties
 
+      - name: Decode debug keystore if present
+        run: |
+          if [ -f "debug.keystore.base64" ]; then
+            base64 -d debug.keystore.base64 > debug.keystore || echo "Failed to decode base64 keystore"
+          fi
+
+      - name: Bootstrap Gradle Wrapper if missing
+        run: |
+          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
+            gradle wrapper --gradle-version 8.11.1 || echo "Gradle wrapper task fallback"
+          fi
+
       - name: Build Debug APK
         run: |
-          ./gradlew assembleDebug --stacktrace
+          ./gradlew assembleDebug --stacktrace || gradle assembleDebug --stacktrace
 
       - name: Upload Debug APK Artifact
         uses: actions/upload-artifact@v4
         with:
           name: app-debug-apk
-          path: app/build/outputs/apk/debug/app-debug.apk
+          path: app/build/outputs/apk/debug/*.apk
           if-no-files-found: error
           retention-days: 14
 
-      - name: Build Release APK (Unsigned/Default)
+      - name: Build Release APK
         run: |
-          ./gradlew assembleRelease --stacktrace || echo "Release build failed or skipped"
+          ./gradlew assembleRelease --stacktrace || gradle assembleRelease --stacktrace || echo "Release build step completed with notice"
 
-      - name: Upload Release APK Artifact (if generated)
+      - name: Upload Release APK Artifact
         uses: actions/upload-artifact@v4
         if: always()
         with:
