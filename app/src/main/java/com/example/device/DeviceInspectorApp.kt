@@ -35,6 +35,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.material.ripple.rememberRipple
 import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -43,6 +45,28 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import kotlinx.coroutines.delay
 import java.util.Locale
+
+val WifiIcon: ImageVector by lazy {
+    ImageVector.Builder(
+        name = "WifiIcon",
+        defaultWidth = 24.dp,
+        defaultHeight = 24.dp,
+        viewportWidth = 24f,
+        viewportHeight = 24f
+    ).apply {
+        addPath(
+            pathData = listOf(
+                androidx.compose.ui.graphics.vector.PathNode.MoveTo(12f, 3f),
+                androidx.compose.ui.graphics.vector.PathNode.CurveTo(7.95f, 3f, 4.21f, 4.64f, 1.39f, 7.3f),
+                androidx.compose.ui.graphics.vector.PathNode.LineTo(12f, 21f),
+                androidx.compose.ui.graphics.vector.PathNode.LineTo(22.61f, 7.31f),
+                androidx.compose.ui.graphics.vector.PathNode.CurveTo(19.79f, 4.64f, 16.05f, 3f, 12f, 3f),
+                androidx.compose.ui.graphics.vector.PathNode.Close
+            ),
+            fill = SolidColor(Color.White)
+        )
+    }.build()
+}
 
 // --- Color Palette (High Density Theme) ---
 object InspectorTheme {
@@ -825,15 +849,15 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
                         )
                     }
  
-                    // Network Telemetry
+                    // Real-Time Network Status
                     StaggeredFadeInContainer(delayMillis = 250) {
                         DashboardLinkCard(
-                            title = "Network Interfaces",
-                            subtitle = "Type: ${network.networkType} • IP: ${network.ipAddress}",
-                            infoText = "WiFi: ${network.wifiStatus} • Data: ${network.mobileDataStatus}",
-                            badge = "Signal: ${network.signalStrength}",
-                            badgeBg = InspectorTheme.NeonBlue,
-                            icon = Icons.Default.Refresh,
+                            title = "Real-Time Network Status",
+                            subtitle = "SSID: ${network.wifiSsid} • ${if (network.isWifiConnected) "Wi-Fi" else if (network.isCellularConnected) "Cellular" else "Offline"}",
+                            infoText = "IP: ${network.ipAddress} • Speed: ${network.wifiLinkSpeedMbps} Mbps",
+                            badge = "${network.wifiSignalBars}/4 Bars (${network.wifiRssiDbm} dBm)",
+                            badgeBg = InspectorTheme.NeonCyan,
+                            icon = WifiIcon,
                             testTag = "btn_nav_network",
                             onClick = { viewModel.navigateTo("network") }
                         )
@@ -2666,160 +2690,511 @@ fun StorageDetailScreen(viewModel: DeviceViewModel) {
 @Composable
 fun NetworkDetailScreen(viewModel: DeviceViewModel) {
     val network by viewModel.networkInfo.collectAsState()
+    val netHistory by viewModel.networkHistory.collectAsState()
+    val pingLatency by viewModel.pingLatencyMs.collectAsState()
+    val isPinging by viewModel.isPinging.collectAsState()
+    val pingLogs by viewModel.pingLogs.collectAsState()
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Network Interfaces", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("Network Connectivity", onBack = { viewModel.navigateTo("dashboard") })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
-        Column(
+        LazyColumn(
             modifier = Modifier
                 .fillMaxSize()
                 .padding(innerPadding)
-                .padding(horizontal = 20.dp),
-            verticalArrangement = Arrangement.spacedBy(20.dp)
+                .padding(horizontal = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(16.dp)
         ) {
-            Spacer(modifier = Modifier.height(8.dp))
+            item { Spacer(modifier = Modifier.height(4.dp)) }
 
-            // Radar scan animation graphic
-            val infiniteTransition = rememberInfiniteTransition(label = "radarScan")
-            val radarAngle by infiniteTransition.animateFloat(
-                initialValue = 0f,
-                targetValue = 360f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(3500, easing = LinearEasing),
-                    repeatMode = RepeatMode.Restart
-                ),
-                label = "radarAngle"
-            )
-            val radarPulse by infiniteTransition.animateFloat(
-                initialValue = 0.2f,
-                targetValue = 1.0f,
-                animationSpec = infiniteRepeatable(
-                    animation = tween(1500, easing = EaseInOutSine),
-                    repeatMode = RepeatMode.Reverse
-                ),
-                label = "radarPulse"
-            )
+            // 1. REAL-TIME NETWORK STATUS & WI-FI SSID CARD
+            item {
+                RealtimeNetworkStatusCard(network = network)
+            }
 
-            val tealColor = InspectorTheme.NeonTeal
-            val blueColor = InspectorTheme.NeonBlue
-            val cyanColor = InspectorTheme.NeonCyan
+            // 2. REAL-TIME NETWORK THROUGHPUT GRAPH CARD
+            item {
+                RealtimeNetworkGraphCard(network = network, history = netHistory)
+            }
+
+            // 3. NETWORK SPECIFICATIONS & GATEWAY DETAILS CARD
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.padding(bottom = 12.dp)
+                        ) {
+                            Icon(
+                                imageVector = Icons.Default.Settings,
+                                contentDescription = null,
+                                tint = InspectorTheme.NeonCyan,
+                                modifier = Modifier.size(18.dp)
+                            )
+                            Text(
+                                text = "CONNECTION SPECIFICATIONS",
+                                fontSize = 11.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = InspectorTheme.TextMuted,
+                                letterSpacing = 1.sp
+                            )
+                        }
+
+                        DetailRow("Active Wi-Fi SSID", network.wifiSsid, highlight = true)
+                        DetailRow("BSSID (Access Point)", network.wifiBssid, valueColor = InspectorTheme.TextMuted)
+                        DetailRow("Signal Quality", "${network.wifiSignalPercent}% (${network.wifiRssiDbm} dBm)", valueColor = InspectorTheme.NeonTeal)
+                        DetailRow("Wi-Fi Frequency", network.wifiFrequencyGhz)
+                        DetailRow("Link Negotiation Speed", "${network.wifiLinkSpeedMbps} Mbps", valueColor = InspectorTheme.NeonBlue)
+                        DetailRow("IPv4 Gateway Address", network.ipAddress, valueColor = InspectorTheme.NeonTeal)
+                        DetailRow("Cellular Carrier", network.cellularCarrier)
+                        DetailRow("Cellular Signal", "${network.cellularSignalBars}/4 Bars")
+                        DetailRow("Internet Reachability", if (network.isInternetAvailable) "ONLINE (ACTIVE)" else "LOCAL ONLY")
+                    }
+                }
+            }
+
+            // 4. LATENCY & ICMP PING DIAGNOSTICS UNIT
+            item {
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawCyberCorners(InspectorTheme.NeonTeal, 0.8f)
+                        .testTag("ping_diagnostics_card"),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Default.Refresh,
+                                    contentDescription = null,
+                                    tint = InspectorTheme.NeonTeal,
+                                    modifier = Modifier.size(18.dp)
+                                )
+                                Text(
+                                    text = "ICMP LATENCY PROBE",
+                                    fontSize = 11.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = InspectorTheme.TextMuted
+                                )
+                            }
+
+                            if (pingLatency != null) {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(InspectorTheme.NeonTeal.copy(alpha = 0.15f))
+                                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                                ) {
+                                    Text(
+                                        text = "${pingLatency} ms RTT",
+                                        fontSize = 12.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        color = InspectorTheme.NeonTeal
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(12.dp))
+
+                        Button(
+                            onClick = { viewModel.runNetworkPingTest() },
+                            enabled = !isPinging,
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(46.dp)
+                                .testTag("btn_ping_latency_test"),
+                            shape = RoundedCornerShape(10.dp),
+                            colors = ButtonDefaults.buttonColors(
+                                containerColor = InspectorTheme.NeonTeal,
+                                contentColor = InspectorTheme.DarkBg
+                            )
+                        ) {
+                            if (isPinging) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(20.dp),
+                                    color = InspectorTheme.DarkBg,
+                                    strokeWidth = 2.dp
+                                )
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("PINGING 8.8.8.8...", fontWeight = FontWeight.Bold)
+                            } else {
+                                Icon(imageVector = Icons.Default.Refresh, contentDescription = null, modifier = Modifier.size(18.dp))
+                                Spacer(modifier = Modifier.width(8.dp))
+                                Text("START LATENCY DIAGNOSTIC TEST", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                            }
+                        }
+
+                        if (pingLogs.isNotEmpty()) {
+                            Spacer(modifier = Modifier.height(12.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(InspectorTheme.DarkBg)
+                                    .padding(12.dp)
+                            ) {
+                                Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                                    pingLogs.forEach { logLine ->
+                                        Text(
+                                            text = logLine,
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = if (logLine.contains("rtt") || logLine.contains("0%")) InspectorTheme.NeonTeal else InspectorTheme.TextMuted
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            item { Spacer(modifier = Modifier.height(16.dp)) }
+        }
+    }
+}
+
+@Composable
+fun WifiSignalBarsIndicator(
+    signalBars: Int,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier.testTag("wifi_signal_bars_indicator"),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+        verticalAlignment = Alignment.Bottom
+    ) {
+        val totalBars = 4
+        val heights = listOf(10.dp, 16.dp, 22.dp, 28.dp)
+        val clampedBars = signalBars.coerceIn(0, totalBars)
+
+        for (i in 0 until totalBars) {
+            val isActive = i < clampedBars
+            val barColor = if (isActive) InspectorTheme.NeonCyan else InspectorTheme.DividerBg
+            val alpha = if (isActive) 1f else 0.35f
 
             Box(
                 modifier = Modifier
-                    .fillMaxWidth()
-                    .height(160.dp)
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(InspectorTheme.PanelBg),
-                contentAlignment = Alignment.Center
-            ) {
-                // Futuristic tactical radar canvas representation
-                Canvas(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(12.dp)
-                ) {
-                    val centerOffset = center
-                    val radius = (size.height / 2f) - 6f
-                    
-                    // Outer HUD border ring
-                    drawCircle(
-                        color = blueColor.copy(alpha = 0.25f),
-                        radius = radius,
-                        style = Stroke(width = 1.5.dp.toPx())
-                    )
-                    // Concentric coordinate grid lines
-                    drawCircle(
-                        color = blueColor.copy(alpha = 0.15f),
-                        radius = radius * 0.66f,
-                        style = Stroke(width = 1.dp.toPx())
-                    )
-                    drawCircle(
-                        color = blueColor.copy(alpha = 0.08f),
-                        radius = radius * 0.33f,
-                        style = Stroke(width = 1.dp.toPx())
-                    )
-                    
-                    // Axis grid marks
-                    drawLine(
-                        color = blueColor.copy(alpha = 0.08f),
-                        start = Offset(centerOffset.x - radius, centerOffset.y),
-                        end = Offset(centerOffset.x + radius, centerOffset.y),
-                        strokeWidth = 1.1.dp.toPx()
-                    )
-                    drawLine(
-                        color = blueColor.copy(alpha = 0.08f),
-                        start = Offset(centerOffset.x, centerOffset.y - radius),
-                        end = Offset(centerOffset.x, centerOffset.y + radius),
-                        strokeWidth = 1.1.dp.toPx()
-                    )
-                    
-                    // Radar sweep vector rotation
-                    val rad = Math.toRadians((radarAngle - 90).toDouble())
-                    val sweepX = centerOffset.x + radius * kotlin.math.cos(rad).toFloat()
-                    val sweepY = centerOffset.y + radius * kotlin.math.sin(rad).toFloat()
-                    
-                    // Draw sweep beam
-                    drawLine(
-                        color = tealColor.copy(alpha = 0.7f),
-                        start = centerOffset,
-                        end = Offset(sweepX, sweepY),
-                        strokeWidth = 2.dp.toPx()
-                    )
-                    
-                    // Center core pulsing dot
-                    drawCircle(
-                        color = cyanColor,
-                        radius = 4.dp.toPx() * radarPulse,
-                        center = centerOffset
-                    )
-                    
-                    // Active connection target echoes fading in/out
-                    drawCircle(
-                        color = tealColor.copy(alpha = 0.7f * radarPulse),
-                        radius = 4.5.dp.toPx(),
-                        center = Offset(centerOffset.x + radius * 0.42f, centerOffset.y - radius * 0.32f)
-                    )
-                    drawCircle(
-                        color = cyanColor.copy(alpha = 0.5f * (1.2f - radarPulse).coerceIn(0f, 1f)),
-                        radius = 4.0.dp.toPx(),
-                        center = Offset(centerOffset.x - radius * 0.52f, centerOffset.y + radius * 0.18f)
-                    )
-                }
+                    .width(6.dp)
+                    .height(heights[i])
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(barColor.copy(alpha = alpha))
+            )
+        }
+    }
+}
 
-                // Foreground overlay with translucent backing indicating active connection
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomCenter)
-                        .padding(bottom = 12.dp)
-                        .background(InspectorTheme.DarkBg.copy(alpha = 0.75f), RoundedCornerShape(6.dp))
-                        .border(1.dp, InspectorTheme.DividerBg.copy(alpha = 0.4f), RoundedCornerShape(6.dp))
-                        .padding(horizontal = 14.dp, vertical = 6.dp)
+@Composable
+fun RealtimeNetworkStatusCard(network: NetworkInfo) {
+    val isWifi = network.isWifiConnected
+    val isConnected = isWifi || network.isCellularConnected
+    val accentColor = if (isConnected) InspectorTheme.NeonCyan else InspectorTheme.WarmCoral
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawCyberCorners(accentColor, 0.9f)
+            .testTag("realtime_network_status_card"),
+        shape = RoundedCornerShape(20.dp),
+        colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+        border = BorderStroke(1.5.dp, accentColor.copy(alpha = 0.5f))
+    ) {
+        Column(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(20.dp)
+        ) {
+            // Top Status Pill Row
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
+                    Box(
+                        modifier = Modifier
+                            .size(10.dp)
+                            .clip(CircleShape)
+                            .background(accentColor)
+                    )
                     Text(
-                        text = "CONN RESOLVED: ${network.ipAddress}",
+                        text = "REAL-TIME NETWORK STATUS",
                         fontSize = 11.sp,
                         fontFamily = FontFamily.Monospace,
                         fontWeight = FontWeight.Bold,
-                        color = InspectorTheme.NeonTeal,
-                        letterSpacing = 1.sp
+                        color = InspectorTheme.TextMuted,
+                        letterSpacing = 0.5.sp
+                    )
+                }
+
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(accentColor.copy(alpha = 0.15f))
+                        .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(8.dp))
+                        .padding(horizontal = 10.dp, vertical = 4.dp)
+                ) {
+                    Text(
+                        text = if (isWifi) "ONLINE • WI-FI" else if (network.isCellularConnected) "ONLINE • CELLULAR" else "OFFLINE",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = accentColor
                     )
                 }
             }
 
-            Card(
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Primary Wi-Fi SSID Title & Signal Display
+            Row(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(14.dp),
-                colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg)
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Column(modifier = Modifier.padding(18.dp)) {
-                    DetailRow("Cellular link Type", network.networkType, highlight = true)
-                    DetailRow("Gateway IPv4 Address", network.ipAddress, valueColor = InspectorTheme.NeonTeal)
-                    DetailRow("WiFi Connection State", network.wifiStatus)
-                    DetailRow("Mobile Cellular Connectivity", network.mobileDataStatus)
-                    DetailRow("Local Link Signal Strength", network.signalStrength, valueColor = InspectorTheme.NeonBlue)
+                Column(modifier = Modifier.weight(1f)) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        Icon(
+                            imageVector = WifiIcon,
+                            contentDescription = "Wi-Fi Icon",
+                            tint = InspectorTheme.NeonCyan,
+                            modifier = Modifier.size(24.dp)
+                        )
+                        Text(
+                            text = if (isWifi) network.wifiSsid else "No Wi-Fi Network",
+                            fontSize = 20.sp,
+                            fontWeight = FontWeight.ExtraBold,
+                            color = InspectorTheme.TextWhite
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = if (isWifi) "BSSID: ${network.wifiBssid} • ${network.wifiFrequencyGhz}" else "Mobile Data: ${network.mobileDataStatus}",
+                        fontSize = 12.sp,
+                        color = InspectorTheme.TextMuted
+                    )
+                }
+
+                // Visual Signal Strength Bars
+                Column(horizontalAlignment = Alignment.End) {
+                    WifiSignalBarsIndicator(signalBars = network.wifiSignalBars)
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "${network.wifiSignalBars}/4 Bars",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = InspectorTheme.NeonCyan
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(16.dp))
+
+            // Signal Quality Progress & RSSI Metric
+            Column(modifier = Modifier.fillMaxWidth()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = "SIGNAL STRENGTH (RSSI)",
+                        fontSize = 10.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = InspectorTheme.TextMuted
+                    )
+                    Text(
+                        text = "${network.wifiRssiDbm} dBm (${network.wifiSignalPercent}% Quality)",
+                        fontSize = 12.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = InspectorTheme.NeonTeal
+                    )
+                }
+                Spacer(modifier = Modifier.height(6.dp))
+                LinearProgressIndicator(
+                    progress = { (network.wifiSignalPercent / 100f).coerceIn(0f, 1f) },
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(8.dp)
+                        .clip(RoundedCornerShape(4.dp)),
+                    color = InspectorTheme.NeonTeal,
+                    trackColor = InspectorTheme.DividerBg
+                )
+            }
+
+            Spacer(modifier = Modifier.height(14.dp))
+
+            // Quick Stats Grid: Link Speed, IP, Protocol
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(horizontalAlignment = Alignment.Start) {
+                    Text(text = "LINK SPEED", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                    Text(text = "${network.wifiLinkSpeedMbps} Mbps", fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InspectorTheme.TextWhite)
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    Text(text = "IP ADDRESS", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                    Text(text = network.ipAddress, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InspectorTheme.NeonCyan)
+                }
+                Column(horizontalAlignment = Alignment.End) {
+                    Text(text = "PROTOCOL", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                    Text(text = network.networkType, fontSize = 14.sp, fontWeight = FontWeight.Bold, color = InspectorTheme.NeonTeal)
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun RealtimeNetworkGraphCard(network: NetworkInfo, history: List<Float>) {
+    val h = if (history.isEmpty()) listOf(100f) else history
+    val maxVal = (h.maxOrNull() ?: 1000f).coerceAtLeast(200f)
+    val neonColor = InspectorTheme.NeonCyan
+    val dividerColor = InspectorTheme.DividerBg
+
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .height(180.dp)
+            .testTag("realtime_network_graph_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+        border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+    ) {
+        Column(modifier = Modifier.padding(16.dp)) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Icon(
+                        imageVector = WifiIcon,
+                        contentDescription = null,
+                        tint = InspectorTheme.NeonCyan,
+                        modifier = Modifier.size(16.dp)
+                    )
+                    Text(
+                        text = "LIVE THROUGHPUT WAVEFORM",
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = InspectorTheme.TextMuted
+                    )
+                }
+
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    Text(
+                        text = String.format(Locale.getDefault(), "DL: %.1f KB/s", network.downloadSpeedKbps),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = InspectorTheme.NeonCyan
+                    )
+                    Text(
+                        text = String.format(Locale.getDefault(), "UL: %.1f KB/s", network.uploadSpeedKbps),
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        fontWeight = FontWeight.Bold,
+                        color = InspectorTheme.NeonTeal
+                    )
+                }
+            }
+
+            Spacer(modifier = Modifier.height(10.dp))
+
+            Canvas(modifier = Modifier.fillMaxSize()) {
+                val w = size.width
+                val canvasH = size.height
+
+                // Draw background grid lines
+                val gridLines = 3
+                for (i in 0..gridLines) {
+                    val y = canvasH * (i.toFloat() / gridLines)
+                    drawLine(
+                        color = dividerColor.copy(alpha = 0.3f),
+                        start = Offset(0f, y),
+                        end = Offset(w, y),
+                        strokeWidth = 1f
+                    )
+                }
+
+                if (h.size > 1) {
+                    val points = h.mapIndexed { idx, valSpeed ->
+                        val x = w * (idx.toFloat() / (h.size - 1))
+                        val y = canvasH - (canvasH * (valSpeed / maxVal)).coerceIn(4f, canvasH - 4f)
+                        Offset(x, y)
+                    }
+
+                    // Fill area underneath
+                    val fillPath = Path().apply {
+                        moveTo(points.first().x, canvasH)
+                        points.forEach { lineTo(it.x, it.y) }
+                        lineTo(points.last().x, canvasH)
+                        close()
+                    }
+
+                    drawPath(
+                        path = fillPath,
+                        brush = Brush.verticalGradient(
+                            colors = listOf(
+                                neonColor.copy(alpha = 0.35f),
+                                neonColor.copy(alpha = 0.0f)
+                            )
+                        )
+                    )
+
+                    // Draw line
+                    for (i in 0 until points.size - 1) {
+                        drawLine(
+                            color = neonColor,
+                            start = points[i],
+                            end = points[i + 1],
+                            strokeWidth = 2.5.dp.toPx()
+                        )
+                    }
+
+                    // Pulse current end point
+                    drawCircle(
+                        color = neonColor,
+                        radius = 4.dp.toPx(),
+                        center = points.last()
+                    )
                 }
             }
         }
