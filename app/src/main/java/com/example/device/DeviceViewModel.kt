@@ -18,6 +18,7 @@ import kotlinx.coroutines.launch
 class DeviceViewModel(application: Application) : AndroidViewModel(application) {
 
     private val context = application.applicationContext
+    private val systemInfoProvider = SystemInfoProvider(context)
     private val modules = DeviceModules(context)
     private val benchmarkManager = BenchmarkManager(context)
 
@@ -108,6 +109,9 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
     private val _hardwareInfo = MutableStateFlow(modules.getHardwareInfo())
     val hardwareInfo = _hardwareInfo.asStateFlow()
 
+    private val _coreSystemMetrics = MutableStateFlow(systemInfoProvider.getCoreMetrics())
+    val coreSystemMetrics = _coreSystemMetrics.asStateFlow()
+
     private val _sensorList = MutableStateFlow(modules.getSensorList())
     val sensorList = _sensorList.asStateFlow()
 
@@ -124,6 +128,32 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
     // --- Navigation switcher ---
     private val _currentScreen = MutableStateFlow("splash") // splash, dashboard, cpu, ram, battery, storage, network, sensors, display, benchmark
     val currentScreen = _currentScreen.asStateFlow()
+
+    private val screenBackStack = mutableListOf<String>()
+
+    fun navigateTo(screen: String) {
+        if (_currentScreen.value != screen) {
+            if (_currentScreen.value != "splash") {
+                screenBackStack.add(_currentScreen.value)
+            }
+            _currentScreen.value = screen
+            if (screen != "sensors") {
+                stopSensorLogging()
+            }
+        }
+    }
+
+    fun navigateBack(): Boolean {
+        if (screenBackStack.isNotEmpty()) {
+            val prevScreen = screenBackStack.removeAt(screenBackStack.size - 1)
+            _currentScreen.value = prevScreen
+            return true
+        } else if (_currentScreen.value != "dashboard" && _currentScreen.value != "splash") {
+            _currentScreen.value = "dashboard"
+            return true
+        }
+        return false
+    }
 
     private var pollingJob: Job? = null
     private var sensorManager: SensorManager? = null
@@ -155,6 +185,7 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
                     _networkInfo.value = updatedNet
                     _thermalZones.value = updatedZones
                     _hardwareInfo.value = modules.getHardwareInfo()
+                    _coreSystemMetrics.value = systemInfoProvider.getCoreMetrics()
 
                     // Append network throughput history
                     val netDl = updatedNet.downloadSpeedKbps
@@ -339,14 +370,6 @@ class DeviceViewModel(application: Application) : AndroidViewModel(application) 
             _pingLogs.value = logs.toList()
 
             _isPinging.value = false
-        }
-    }
-
-    fun navigateTo(screen: String) {
-        _currentScreen.value = screen
-        // Stop sensor loggers whenever switching screens to save energy! Excellent optimization metric!
-        if (screen != "sensors") {
-            stopSensorLogging()
         }
     }
 

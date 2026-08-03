@@ -1,6 +1,7 @@
 @file:Suppress("DEPRECATION")
 package com.example.device
 
+import androidx.activity.compose.BackHandler
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.*
@@ -68,23 +69,24 @@ val WifiIcon: ImageVector by lazy {
     }.build()
 }
 
-// --- Color Palette (High Density Theme) ---
+// --- Color Palette (AMOLED Glassmorphism Theme) ---
 object InspectorTheme {
-    var isDark by mutableStateOf(true) // Start in dark mode by default (fits CPU X styles)
+    var isDark by mutableStateOf(true) // Start in pure dark mode by default
 
-    val DarkBg: Color @Composable get() = if (isDark) Color(0xFF0B0E14) else Color(0xFFF3F4F9)      // Sleek dark command center vs light high-density background
-    val PanelBg: Color @Composable get() = if (isDark) Color(0xFF131924) else Color(0xFFFFFFFF)     // High-density panel cards
-    val DividerBg: Color @Composable get() = if (isDark) Color(0xFF222B3D) else Color(0xFFE0E2EC)   // Outline borders
+    val DarkBg: Color @Composable get() = if (isDark) Color(0xFF050505) else Color(0xFFF3F4F9)      // Pure AMOLED Black #050505
+    val PanelBg: Color @Composable get() = if (isDark) Color(0xFF111111) else Color(0xFFFFFFFF)     // Dark Gray #111111
+    val DividerBg: Color @Composable get() = if (isDark) Color(0xFF222222) else Color(0xFFE0E2EC)   // Glowing outline borders
     
-    val NeonCyan: Color @Composable get() = if (isDark) Color(0xFF00E5FF) else Color(0xFF6750A4)    // Purple vs Cyan accent
-    val NeonBlue: Color @Composable get() = if (isDark) Color(0xFF007FFF) else Color(0xFF21005D)    // Dark contrast indigo/blue
-    val NeonTeal: Color @Composable get() = if (isDark) Color(0xFF00FFA1) else Color(0xFF1D6D3F)    // Standard optimal green
-    val WarmCoral: Color @Composable get() = if (isDark) Color(0xFFFF4B61) else Color(0xFFB3261E)   // Critical load scarlet
-    val AmberGlow: Color @Composable get() = if (isDark) Color(0xFFFFB300) else Color(0xFFE65100)   // Bright warning orange
+    val NeonCyan: Color @Composable get() = if (isDark) Color(0xFF00E5FF) else Color(0xFF6750A4)    // Electric Cyan accent
+    val NeonBlue: Color @Composable get() = if (isDark) Color(0xFF3B82F6) else Color(0xFF21005D)    // Electric Blue accent
+    val NeonTeal: Color @Composable get() = if (isDark) Color(0xFF10B981) else Color(0xFF1D6D3F)    // Emerald Green accent
+    val WarmCoral: Color @Composable get() = if (isDark) Color(0xFFEF4444) else Color(0xFFB3261E)   // Scarlet Red warning
+    val AmberGlow: Color @Composable get() = if (isDark) Color(0xFFF59E0B) else Color(0xFFE65100)   // Bright Amber/Orange
+    val NeonPurple: Color @Composable get() = if (isDark) Color(0xFFA855F7) else Color(0xFF6200EE)  // Electric Violet/Purple
     
-    val TextWhite: Color @Composable get() = if (isDark) Color(0xFFF1F5F9) else Color(0xFF1B1B1F)   // Primary contrast text
-    val TextMuted: Color @Composable get() = if (isDark) Color(0xFF94A3B8) else Color(0xFF44474E)   // Slate gray sub-labels
-    val TextDark: Color @Composable get() = if (isDark) Color(0xFF475569) else Color(0xFF74777F)    // Deep disabled/accent gray
+    val TextWhite: Color @Composable get() = if (isDark) Color(0xFFFFFFFF) else Color(0xFF1B1B1F)   // High contrast white text
+    val TextMuted: Color @Composable get() = if (isDark) Color(0xFF9CA3AF) else Color(0xFF44474E)   // Cool gray sub-labels
+    val TextDark: Color @Composable get() = if (isDark) Color(0xFF4B5563) else Color(0xFF74777F)    // Muted accent gray
 }
 
 @Composable
@@ -294,6 +296,10 @@ fun RightChevron(tint: Color, modifier: Modifier = Modifier) {
 fun DeviceInspectorApp(viewModel: DeviceViewModel) {
     val currentScreen by viewModel.currentScreen.collectAsState()
     val context = LocalContext.current
+
+    BackHandler(enabled = currentScreen != "dashboard" && currentScreen != "splash") {
+        viewModel.navigateBack()
+    }
 
     Surface(
         modifier = Modifier.fillMaxSize(),
@@ -1101,7 +1107,7 @@ fun CpuDetailScreen(viewModel: DeviceViewModel) {
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Central Processor", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("Central Processor", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -1233,7 +1239,7 @@ fun RamDetailScreen(viewModel: DeviceViewModel) {
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("System RAM Memory", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("System RAM Memory", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -1367,7 +1373,7 @@ fun BatteryDetailScreen(viewModel: DeviceViewModel) {
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Battery & Temp Monitor", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("Battery 1 • Power & Lab", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -1387,6 +1393,386 @@ fun BatteryDetailScreen(viewModel: DeviceViewModel) {
                     percentage = battery.percentage,
                     statusText = battery.chargingStatus
                 )
+            }
+
+            // BATTERY 1 HERO TIME & RATE ESTIMATE BANNER
+            item {
+                val accentColor = if (battery.isPluggedIn) InspectorTheme.NeonTeal else InspectorTheme.NeonCyan
+                Card(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .drawCyberCorners(accentColor, 0.9f)
+                        .testTag("battery_1_time_banner_card"),
+                    shape = RoundedCornerShape(20.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.5.dp, accentColor.copy(alpha = 0.5f))
+                ) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(18.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(10.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(38.dp)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(accentColor.copy(alpha = 0.15f))
+                                        .border(1.dp, accentColor.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = if (battery.isPluggedIn) Icons.Default.PlayArrow else Icons.Default.Info,
+                                        contentDescription = null,
+                                        tint = accentColor,
+                                        modifier = Modifier.size(20.dp)
+                                    )
+                                }
+                                Column {
+                                    Text(
+                                        text = "BATTERY ESTIMATED DURATION",
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        fontWeight = FontWeight.Bold,
+                                        color = InspectorTheme.TextMuted,
+                                        letterSpacing = 0.5.sp
+                                    )
+                                    Text(
+                                        text = battery.expectedTimeRemainingStr,
+                                        fontSize = 16.sp,
+                                        fontWeight = FontWeight.Black,
+                                        color = InspectorTheme.TextWhite
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(accentColor.copy(alpha = 0.15f))
+                                    .border(1.dp, accentColor.copy(alpha = 0.4f), RoundedCornerShape(8.dp))
+                                    .padding(horizontal = 8.dp, vertical = 4.dp)
+                            ) {
+                                Text(
+                                    text = if (battery.isPluggedIn) "+${battery.currentAmperageMa} mA" else "${battery.currentAmperageMa} mA",
+                                    fontSize = 13.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = accentColor
+                                )
+                            }
+                        }
+
+                        Spacer(modifier = Modifier.height(14.dp))
+
+                        // Rate Breakdown Metrics Row (%/hr, mAh/hr, Watts)
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(InspectorTheme.DarkBg.copy(alpha = 0.6f))
+                                .padding(12.dp),
+                            horizontalArrangement = Arrangement.SpaceAround,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(text = "RATE (%/HR)", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(
+                                    text = String.format(Locale.getDefault(), "%+.1f%%/h", battery.chargeRatePercentPerHour),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = if (battery.chargeRatePercentPerHour >= 0) InspectorTheme.NeonTeal else InspectorTheme.WarmCoral
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(text = "RATE (MAH/HR)", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(
+                                    text = String.format(Locale.getDefault(), "%+.0f mAh/h", battery.chargeRateMahPerHour),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = InspectorTheme.NeonCyan
+                                )
+                            }
+
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                Text(text = "POWER (W)", fontSize = 9.sp, fontFamily = FontFamily.Monospace, color = InspectorTheme.TextMuted)
+                                Text(
+                                    text = String.format(Locale.getDefault(), "%.2f W", battery.wattageWatts),
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Bold,
+                                    color = InspectorTheme.AmberGlow
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // DUAL-COLUMN HIGH-DENSITY METRICS ROW
+            item {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp)
+                ) {
+                    // Temperature Card Group
+                    Card(
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("battery_temp_card"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                        border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(InspectorTheme.WarmCoral.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Warning,
+                                        contentDescription = null,
+                                        tint = InspectorTheme.WarmCoral,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "THERMAL CORE",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = InspectorTheme.TextMuted
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = String.format(Locale.getDefault(), "%.1f °C", battery.temperatureCelsius),
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                color = InspectorTheme.TextWhite
+                            )
+                            Text(
+                                text = String.format(Locale.getDefault(), "%.1f °F", battery.temperatureFahrenheit),
+                                fontSize = 11.sp,
+                                color = InspectorTheme.TextMuted,
+                                fontWeight = FontWeight.Bold,
+                                fontFamily = FontFamily.Monospace
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            val progress = (battery.temperatureCelsius / 60f).coerceIn(0f, 1f)
+                            val barColor = when {
+                                battery.temperatureCelsius < 37f -> InspectorTheme.NeonTeal
+                                battery.temperatureCelsius < 45f -> InspectorTheme.AmberGlow
+                                else -> InspectorTheme.WarmCoral
+                            }
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(InspectorTheme.DividerBg.copy(alpha = 0.4f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(progress)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(barColor)
+                                )
+                            }
+                        }
+                    }
+
+                    // Power & Health Retention Card Group
+                    Card(
+                        modifier = Modifier
+                            .weight(1f)
+                            .testTag("battery_health_capacity_card"),
+                        shape = RoundedCornerShape(18.dp),
+                        colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                        border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                    ) {
+                        Column(modifier = Modifier.padding(14.dp)) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(InspectorTheme.NeonCyan.copy(alpha = 0.12f)),
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Default.Star,
+                                        contentDescription = null,
+                                        tint = InspectorTheme.NeonCyan,
+                                        modifier = Modifier.size(14.dp)
+                                    )
+                                }
+                                Text(
+                                    text = "HEALTH RETENTION",
+                                    fontSize = 10.sp,
+                                    fontFamily = FontFamily.Monospace,
+                                    fontWeight = FontWeight.Bold,
+                                    color = InspectorTheme.TextMuted
+                                )
+                            }
+                            Spacer(modifier = Modifier.height(14.dp))
+                            Text(
+                                text = "${battery.healthEstimate}%",
+                                fontSize = 18.sp,
+                                fontWeight = FontWeight.Black,
+                                color = InspectorTheme.TextWhite
+                            )
+                            Text(
+                                text = battery.healthStatus.uppercase(Locale.getDefault()),
+                                fontSize = 11.sp,
+                                color = InspectorTheme.NeonTeal,
+                                fontWeight = FontWeight.Bold
+                            )
+                            Spacer(modifier = Modifier.height(10.dp))
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .height(6.dp)
+                                    .clip(RoundedCornerShape(3.dp))
+                                    .background(InspectorTheme.DividerBg.copy(alpha = 0.4f))
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxHeight()
+                                        .fillMaxWidth(battery.healthEstimate / 100f)
+                                        .clip(RoundedCornerShape(3.dp))
+                                        .background(InspectorTheme.NeonCyan)
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+
+            // DETAILED BATTERY 1 SPECIFICATIONS CARDS
+            // Section 1: Charging & Plugged Details
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Text(
+                            text = "CHARGING & POWER SOURCE",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = InspectorTheme.NeonCyan,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        DetailRow("Charging Status", battery.chargingStatus, highlight = true)
+                        DetailRow("Plugged In", if (battery.isPluggedIn) "YES" else "NO", valueColor = if (battery.isPluggedIn) InspectorTheme.NeonTeal else InspectorTheme.TextMuted)
+                        DetailRow("Connection Type", battery.plugTypeDetail)
+                        DetailRow("Power Source", battery.powerSource)
+                    }
+                }
+            }
+
+            // Section 2: Electrical & Current Parameters (Voltage, Amperage, Wattage)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Text(
+                            text = "ELECTRICAL PARAMETERS",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = InspectorTheme.AmberGlow,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        DetailRow("Terminal Voltage", String.format(Locale.getDefault(), "%.3f V (%d mV)", battery.voltageVolts, battery.voltageMillivolts), highlight = true)
+                        DetailRow("Amperage (Current)", String.format(Locale.getDefault(), "%+d mA", battery.currentAmperageMa), valueColor = if (battery.currentAmperageMa >= 0) InspectorTheme.NeonTeal else InspectorTheme.WarmCoral)
+                        DetailRow("Average Amperage", String.format(Locale.getDefault(), "%+d mA", battery.averageAmperageMa))
+                        DetailRow("Calculated Power Draw", String.format(Locale.getDefault(), "%.2f Watts", battery.wattageWatts), valueColor = InspectorTheme.AmberGlow)
+                    }
+                }
+            }
+
+            // Section 3: Battery Capacity & Energy Drain (mAh, mWh, Needed charge)
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Text(
+                            text = "CELL CAPACITY & ENERGY DRAIN",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = InspectorTheme.NeonTeal,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        DetailRow("Current Remaining Capacity", String.format(Locale.getDefault(), "%.0f mAh", battery.remainingCapacityMah), highlight = true)
+                        DetailRow("Charge Needed to 100%", String.format(Locale.getDefault(), "%.0f mAh", battery.chargeNeededToFullMah), valueColor = InspectorTheme.NeonCyan)
+                        DetailRow("Design Capacity", String.format(Locale.getDefault(), "%.0f mAh", battery.designCapacityMah))
+                        DetailRow("Stored Energy Counter", String.format(Locale.getDefault(), "%.2f Wh (%.0f mWh)", battery.energyCounterMwh / 1000.0, battery.energyCounterMwh))
+                        DetailRow("Estimated Charge Cycles", "${battery.chargeCycleEstimate} cycles")
+                    }
+                }
+            }
+
+            // Section 4: Health, Tech & Temperature
+            item {
+                Card(
+                    modifier = Modifier.fillMaxWidth(),
+                    shape = RoundedCornerShape(16.dp),
+                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+                ) {
+                    Column(modifier = Modifier.padding(18.dp)) {
+                        Text(
+                            text = "HEALTH & CHEMISTRY",
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Bold,
+                            fontFamily = FontFamily.Monospace,
+                            color = InspectorTheme.TextMuted,
+                            letterSpacing = 1.sp
+                        )
+                        Spacer(modifier = Modifier.height(10.dp))
+                        DetailRow("Health Retention Rate", "${battery.healthEstimate}%", highlight = true)
+                        DetailRow("Battery Health Status", battery.healthStatus, valueColor = InspectorTheme.NeonTeal)
+                        DetailRow("Cell Technology", battery.technology)
+                        DetailRow("Battery Temperature", String.format(Locale.getDefault(), "%.1f °C (%.1f °F)", battery.temperatureCelsius, battery.temperatureFahrenheit), valueColor = InspectorTheme.WarmCoral)
+                        DetailRow("System Thermal Zone State", thermalZones.thermalState, valueColor = InspectorTheme.NeonTeal)
+                    }
+                }
             }
 
             // THERMAL MONITOR BREAKDOWN BANNER
@@ -1578,7 +1964,6 @@ fun BatteryDetailScreen(viewModel: DeviceViewModel) {
 
                         Spacer(modifier = Modifier.height(14.dp))
 
-                        // Real-Time Temperature Drop Live Metrics
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
@@ -1675,181 +2060,6 @@ fun BatteryDetailScreen(viewModel: DeviceViewModel) {
                                 )
                             }
                         }
-                    }
-                }
-            }
-
-            // DUAL-COLUMN HIGH-DENSITY METRICS ROW
-            item {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp)
-                ) {
-                    // Temperature Card Group
-                    Card(
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("battery_temp_card"),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
-                        border = BorderStroke(1.dp, InspectorTheme.DividerBg)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(InspectorTheme.WarmCoral.copy(alpha = 0.12f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Warning,
-                                        contentDescription = null,
-                                        tint = InspectorTheme.WarmCoral,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
-                                Text(
-                                    text = "THERMAL CORE",
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = InspectorTheme.TextMuted
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = String.format(Locale.getDefault(), "%.1f °C", battery.temperatureCelsius),
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                                color = InspectorTheme.TextWhite
-                            )
-                            val fahrenheit = (battery.temperatureCelsius * 9/5) + 32
-                            Text(
-                                text = String.format(Locale.getDefault(), "%.1f °F", fahrenheit),
-                                fontSize = 11.sp,
-                                color = InspectorTheme.TextMuted,
-                                fontWeight = FontWeight.Bold,
-                                fontFamily = FontFamily.Monospace
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            // Thermal Visual bar representation
-                            val progress = (battery.temperatureCelsius / 60f).coerceIn(0f, 1f)
-                            val barColor = when {
-                                battery.temperatureCelsius < 37f -> InspectorTheme.NeonTeal
-                                battery.temperatureCelsius < 45f -> InspectorTheme.AmberGlow
-                                else -> InspectorTheme.WarmCoral
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(InspectorTheme.DividerBg.copy(alpha = 0.4f))
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .fillMaxWidth(progress)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(barColor)
-                                )
-                            }
-                        }
-                    }
-
-                    // Power & Health Retention Card Group
-                    Card(
-                        modifier = Modifier
-                            .weight(1f)
-                            .testTag("battery_health_capacity_card"),
-                        shape = RoundedCornerShape(18.dp),
-                        colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
-                        border = BorderStroke(1.dp, InspectorTheme.DividerBg)
-                    ) {
-                        Column(modifier = Modifier.padding(14.dp)) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp)
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(24.dp)
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(InspectorTheme.NeonCyan.copy(alpha = 0.12f)),
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        imageVector = Icons.Default.Star,
-                                        contentDescription = null,
-                                        tint = InspectorTheme.NeonCyan,
-                                        modifier = Modifier.size(14.dp)
-                                    )
-                                }
-                                Text(
-                                    text = "RETAINED HEALTH",
-                                    fontSize = 10.sp,
-                                    fontFamily = FontFamily.Monospace,
-                                    fontWeight = FontWeight.Bold,
-                                    color = InspectorTheme.TextMuted
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(14.dp))
-                            Text(
-                                text = "${battery.healthEstimate}%",
-                                fontSize = 18.sp,
-                                fontWeight = FontWeight.Black,
-                                color = InspectorTheme.TextWhite
-                            )
-                            Text(
-                                text = "LIFESPAN DEPTH",
-                                fontSize = 11.sp,
-                                color = InspectorTheme.TextMuted,
-                                fontWeight = FontWeight.Bold
-                            )
-                            Spacer(modifier = Modifier.height(10.dp))
-                            // Health Retention Visual bar
-                            Box(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(6.dp)
-                                    .clip(RoundedCornerShape(3.dp))
-                                    .background(InspectorTheme.DividerBg.copy(alpha = 0.4f))
-                            ) {
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxHeight()
-                                        .fillMaxWidth(battery.healthEstimate / 100f)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(InspectorTheme.NeonCyan)
-                                )
-                            }
-                        }
-                    }
-                }
-            }
-
-            // Specs
-            item {
-                Card(
-                    modifier = Modifier.fillMaxWidth(),
-                    shape = RoundedCornerShape(14.dp),
-                    colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
-                    border = BorderStroke(1.dp, InspectorTheme.DividerBg)
-                ) {
-                    Column(modifier = Modifier.padding(18.dp)) {
-                        DetailRow("State of Charge", "${battery.percentage}%", highlight = true)
-                        DetailRow("Terminal Voltage", String.format(Locale.getDefault(), "%.3f V", battery.voltageVolts))
-                        DetailRow("Battery Temperature", String.format(Locale.getDefault(), "%.1f °C", battery.temperatureCelsius), valueColor = InspectorTheme.WarmCoral)
-                        DetailRow("CPU SoC Temperature", String.format(Locale.getDefault(), "%.1f °C", thermalZones.cpuTempC), valueColor = InspectorTheme.AmberGlow)
-                        DetailRow("System Thermal State", thermalZones.thermalState, valueColor = InspectorTheme.NeonTeal)
-                        DetailRow("Plugged Source", battery.powerSource)
-                        DetailRow("Device Integrity Status", battery.healthStatus, valueColor = InspectorTheme.NeonTeal)
-                        DetailRow("Estimated Health State", "${battery.healthEstimate}%", valueColor = InspectorTheme.NeonCyan)
                     }
                 }
             }
@@ -2606,7 +2816,7 @@ fun StorageDetailScreen(viewModel: DeviceViewModel) {
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Physical Storage", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("Physical Storage", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -2698,7 +2908,7 @@ fun NetworkDetailScreen(viewModel: DeviceViewModel) {
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Network Connectivity", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("Network Connectivity", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -3212,7 +3422,7 @@ fun SensorsDetailScreen(viewModel: DeviceViewModel) {
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Hardware Sensors", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("Hardware Sensors", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -3468,7 +3678,7 @@ fun DisplayDetailScreen(viewModel: DeviceViewModel) {
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Screen & Display", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("Screen & Display", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -3615,7 +3825,7 @@ fun BenchmarkDetailScreen(viewModel: DeviceViewModel) {
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Hardware Benchmark", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("Hardware Benchmark", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -3980,7 +4190,7 @@ fun SystemTestScreen(viewModel: DeviceViewModel) {
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("System & Sensors", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("System & Sensors", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -4569,7 +4779,7 @@ fun OsDetailScreen(viewModel: DeviceViewModel) {
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Android OS Details", onBack = { viewModel.navigateTo("dashboard") })
+            SubScreenTopBar("Android OS Details", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
