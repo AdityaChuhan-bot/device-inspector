@@ -1052,7 +1052,10 @@ fun DashboardLinkCard(
                         text = title,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.Bold,
-                        color = InspectorTheme.TextWhite
+                        color = InspectorTheme.TextWhite,
+                        modifier = Modifier.weight(1f, fill = false),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
                     )
                     
                     Box(
@@ -5110,6 +5113,7 @@ fun SubScreenTopBar(title: String, onBack: () -> Unit) {
             horizontalArrangement = Arrangement.SpaceBetween
         ) {
             Row(
+                modifier = Modifier.weight(1f, fill = false),
                 verticalAlignment = Alignment.CenterVertically
             ) {
                 val backInteractionSource = remember { MutableInteractionSource() }
@@ -5140,7 +5144,11 @@ fun SubScreenTopBar(title: String, onBack: () -> Unit) {
                     fontWeight = FontWeight.Bold,
                     fontFamily = FontFamily.Monospace,
                     color = textWhite,
-                    modifier = Modifier.padding(start = 8.dp)
+                    modifier = Modifier
+                        .padding(start = 8.dp)
+                        .weight(1f, fill = false),
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
                 )
             }
 
@@ -5202,15 +5210,20 @@ fun DetailRow(label: String, value: String, highlight: Boolean = false, valueCol
         Text(
             text = label,
             fontSize = 13.sp,
-            color = InspectorTheme.TextMuted
+            color = InspectorTheme.TextMuted,
+            modifier = Modifier.weight(1f, fill = false),
+            maxLines = 1,
+            overflow = TextOverflow.Ellipsis
         )
+        Spacer(modifier = Modifier.width(12.dp))
         Text(
             text = value,
             fontSize = if (highlight) 15.sp else 13.sp,
             fontWeight = if (highlight) FontWeight.Bold else FontWeight.SemiBold,
             color = valueColor,
             textAlign = TextAlign.End,
-            maxLines = 1,
+            modifier = Modifier.weight(1.2f, fill = false),
+            maxLines = 2,
             overflow = TextOverflow.Ellipsis
         )
     }
@@ -5325,7 +5338,7 @@ fun CircularProgressGauge(
 fun formatBytes(bytes: Long): String {
     if (bytes <= 0) return "0 B"
     val units = arrayOf("B", "KB", "MB", "GB", "TB")
-    val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt()
+    val digitGroups = (Math.log10(bytes.toDouble()) / Math.log10(1024.0)).toInt().coerceIn(0, units.size - 1)
     return String.format(Locale.getDefault(), "%.1f %s", bytes / Math.pow(1024.0, digitGroups.toDouble()), units[digitGroups])
 }
 

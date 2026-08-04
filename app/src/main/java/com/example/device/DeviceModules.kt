@@ -231,6 +231,7 @@ class DeviceModules(private val context: Context) {
     fun getOsDetails(): OsDetails {
         val sdk = Build.VERSION.SDK_INT
         val codeName = when (sdk) {
+            36 -> "Baklava"
             35 -> "Vanilla Ice Cream"
             34 -> "Upside Down Cake"
             33 -> "Tiramisu"
