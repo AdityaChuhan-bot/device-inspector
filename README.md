@@ -11,6 +11,7 @@
 ![Target SDK](https://img.shields.io/badge/Target%20SDK-36-success)
 ![Kotlin](https://img.shields.io/badge/Kotlin-2.x-purple?logo=kotlin)
 ![Jetpack Compose](https://img.shields.io/badge/Jetpack%20Compose-Material%203-4285F4)
+[![Build Status](https://github.com/AdityaChuhan-bot/device-inspector/actions/workflows/android-build.yml/badge.svg)](https://github.com/AdityaChuhan-bot/device-inspector/actions)
 ![License](https://img.shields.io/badge/License-MIT-green)
 
 </p>
@@ -22,6 +23,15 @@
 **Device Inspector** is a modern Android application built with **Kotlin** and **Jetpack Compose** that provides comprehensive hardware and software information about an Android device through a clean, responsive dashboard.
 
 The goal of the project is to make device diagnostics, hardware inspection, and system information easy to access without requiring root access.
+
+---
+
+## 📥 Download APK
+
+You can download the latest pre-compiled APK directly from the [GitHub Releases](https://github.com/AdityaChuhan-bot/device-inspector/releases) page.
+
+- **File Name:** `DeviceInspector-v1.0.0.apk`
+- **Supported Android:** Android 7.0 (API 24) and above
 
 ---
 

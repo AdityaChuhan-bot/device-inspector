@@ -1,10 +1,12 @@
-name: Android CI & APK Build
+name: Android CI & Automatic GitHub Release
 
 on:
   push:
-    branches: [ "**" ]
+    branches: [ "main", "master", "develop" ]
+    tags:
+      - 'v*'
   pull_request:
-    branches: [ "**" ]
+    branches: [ "main", "master" ]
   workflow_dispatch:
 
 concurrency:
@@ -13,7 +15,7 @@ concurrency:
 
 jobs:
   build:
-    name: Build & Generate APK
+    name: Build & Release Device Inspector APK
     runs-on: ubuntu-latest
     permissions:
       contents: write
@@ -44,36 +46,46 @@ jobs:
       - name: Decode debug keystore if present
         run: |
           if [ -f "debug.keystore.base64" ]; then
-            base64 -d debug.keystore.base64 > debug.keystore || echo "Failed to decode base64 keystore"
+            base64 -d debug.keystore.base64 > debug.keystore || echo "Keystore decoded or fallback"
           fi
 
-      - name: Bootstrap Gradle Wrapper if missing
+      - name: Build Debug & Release APKs
         run: |
-          if [ ! -f "gradle/wrapper/gradle-wrapper.jar" ]; then
-            gradle wrapper --gradle-version 8.11.1 || echo "Gradle wrapper task fallback"
+          ./gradlew assembleDebug assembleRelease --stacktrace || gradle assembleDebug assembleRelease --stacktrace
+
+      - name: Organize & Rename APK Outputs
+        run: |
+          mkdir -p release-apks
+          VERSION_NAME="1.0.0"
+          
+          # Find generated APKs and copy with standardized naming
+          if find app/build/outputs/apk/release -name "*.apk" | grep -q .; then
+            cp app/build/outputs/apk/release/*.apk release-apks/DeviceInspector-v${VERSION_NAME}.apk
+          elif find app/build/outputs/apk/debug -name "*.apk" | grep -q .; then
+            cp app/build/outputs/apk/debug/*.apk release-apks/DeviceInspector-v${VERSION_NAME}.apk
+          fi
+          
+          if find app/build/outputs/apk/debug -name "*.apk" | grep -q .; then
+            cp app/build/outputs/apk/debug/*.apk release-apks/DeviceInspector-v${VERSION_NAME}-debug.apk
           fi
 
-      - name: Build Debug APK
-        run: |
-          ./gradlew assembleDebug --stacktrace || gradle assembleDebug --stacktrace
-
-      - name: Upload Debug APK Artifact
+      - name: Upload APKs as Workflow Artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: app-debug-apk
-          path: app/build/outputs/apk/debug/*.apk
+          name: DeviceInspector-v1.0.0-APKs
+          path: release-apks/*.apk
           if-no-files-found: error
-          retention-days: 14
+          retention-days: 30
 
-      - name: Build Release APK
-        run: |
-          ./gradlew assembleRelease --stacktrace || gradle assembleRelease --stacktrace || echo "Release build step completed with notice"
-
-      - name: Upload Release APK Artifact
-        uses: actions/upload-artifact@v4
-        if: always()
+      - name: Create / Update GitHub Release
+        if: github.event_name == 'push' && (github.ref == 'refs/heads/main' || github.ref == 'refs/heads/master' || startsWith(github.ref, 'refs/tags/v'))
+        uses: softprops/action-gh-release@v2
         with:
-          name: app-release-apk
-          path: app/build/outputs/apk/release/*.apk
-          if-no-files-found: ignore
-          retention-days: 14
+          name: Device Inspector v1.0.0
+          tag_name: ${{ github.ref_name }}
+          draft: false
+          prerelease: false
+          files: release-apks/*.apk
+          generate_release_notes: true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

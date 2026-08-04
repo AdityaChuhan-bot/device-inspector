@@ -15,9 +15,17 @@ android {
     minSdk = 24
     targetSdk = 36
     versionCode = 1
-    versionName = "1.0"
+    versionName = "1.0.0"
 
     testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
+  }
+
+  (this as? com.android.build.gradle.AppExtension)?.applicationVariants?.all {
+    val variant = this
+    outputs.all {
+      val output = this as? com.android.build.gradle.internal.api.BaseVariantOutputImpl
+      output?.outputFileName = "DeviceInspector-v${variant.versionName}-${variant.name}.apk"
+    }
   }
 
   signingConfigs {
