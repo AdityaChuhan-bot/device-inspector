@@ -24,6 +24,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -856,13 +857,13 @@ fun DashboardScreen(viewModel: DeviceViewModel) {
                         )
                     }
  
-                    // Real-Time Network Status
+                    // Real-Time Network Status & Speed Check
                     StaggeredFadeInContainer(delayMillis = 250) {
                         DashboardLinkCard(
-                            title = "Real-Time Network Status",
-                            subtitle = "SSID: ${network.wifiSsid} • ${if (network.isWifiConnected) "Wi-Fi" else if (network.isCellularConnected) "Cellular" else "Offline"}",
-                            infoText = "IP: ${network.ipAddress} • Speed: ${network.wifiLinkSpeedMbps} Mbps",
-                            badge = "${network.wifiSignalBars}/4 Bars (${network.wifiRssiDbm} dBm)",
+                            title = "Network & Speed Check",
+                            subtitle = "Speed Test (DL, UL, Ping) • ${network.wifiSsid}",
+                            infoText = "IP: ${network.ipAddress} • Link: ${network.wifiLinkSpeedMbps} Mbps",
+                            badge = "Speed Test",
                             badgeBg = InspectorTheme.NeonCyan,
                             icon = WifiIcon,
                             testTag = "btn_nav_network",
@@ -2905,10 +2906,11 @@ fun NetworkDetailScreen(viewModel: DeviceViewModel) {
     val pingLatency by viewModel.pingLatencyMs.collectAsState()
     val isPinging by viewModel.isPinging.collectAsState()
     val pingLogs by viewModel.pingLogs.collectAsState()
+    val speedState by viewModel.speedTestState.collectAsState()
 
     Scaffold(
         topBar = {
-            SubScreenTopBar("Network Connectivity", onBack = { viewModel.navigateBack() })
+            SubScreenTopBar("Network & Speed Test", onBack = { viewModel.navigateBack() })
         },
         containerColor = InspectorTheme.DarkBg
     ) { innerPadding ->
@@ -2921,17 +2923,26 @@ fun NetworkDetailScreen(viewModel: DeviceViewModel) {
         ) {
             item { Spacer(modifier = Modifier.height(4.dp)) }
 
-            // 1. REAL-TIME NETWORK STATUS & WI-FI SSID CARD
+            // 1. INTERNET SPEED CHECK (DOWNLOAD, UPLOAD, PING) CARD
+            item {
+                InternetSpeedTestCard(
+                    speedState = speedState,
+                    onStartTest = { viewModel.runInternetSpeedTest() },
+                    onCancelTest = { viewModel.cancelSpeedTest() }
+                )
+            }
+
+            // 2. REAL-TIME NETWORK STATUS & WI-FI SSID CARD
             item {
                 RealtimeNetworkStatusCard(network = network)
             }
 
-            // 2. REAL-TIME NETWORK THROUGHPUT GRAPH CARD
+            // 3. REAL-TIME NETWORK THROUGHPUT GRAPH CARD
             item {
                 RealtimeNetworkGraphCard(network = network, history = netHistory)
             }
 
-            // 3. NETWORK SPECIFICATIONS & GATEWAY DETAILS CARD
+            // 4. NETWORK SPECIFICATIONS & GATEWAY DETAILS CARD
             item {
                 Card(
                     modifier = Modifier.fillMaxWidth(),
@@ -3084,6 +3095,553 @@ fun NetworkDetailScreen(viewModel: DeviceViewModel) {
             }
 
             item { Spacer(modifier = Modifier.height(16.dp)) }
+        }
+    }
+}
+
+@Composable
+fun SpeedometerGauge(
+    currentValue: Float,
+    stage: SpeedTestStage,
+    progress: Float,
+    modifier: Modifier = Modifier
+) {
+    val animatedValue by animateFloatAsState(
+        targetValue = currentValue,
+        animationSpec = spring(stiffness = Spring.StiffnessLow),
+        label = "gauge_val"
+    )
+
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(180.dp),
+        contentAlignment = Alignment.Center
+    ) {
+        val dividerBg = InspectorTheme.DividerBg
+        val neonCyan = InspectorTheme.NeonCyan
+        val neonTeal = InspectorTheme.NeonTeal
+        val amberGlow = InspectorTheme.AmberGlow
+
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val center = Offset(size.width / 2f, size.height * 0.72f)
+            val radius = size.width.coerceAtMost(size.height) * 0.42f
+            val strokeWidth = 12.dp.toPx()
+
+            // Track arc
+            drawArc(
+                color = dividerBg.copy(alpha = 0.5f),
+                startAngle = 180f,
+                sweepAngle = 180f,
+                useCenter = false,
+                style = Stroke(width = strokeWidth, cap = StrokeCap.Round),
+                size = Size(radius * 2, radius * 2),
+                topLeft = Offset(center.x - radius, center.y - radius)
+            )
+
+            // Dynamic progress sweep arc
+            val sweepRatio = (animatedValue / 300f).coerceIn(0f, 1f)
+            val activeSweepAngle = 180f * sweepRatio
+            val gaugeColor = when (stage) {
+                SpeedTestStage.PING -> neonTeal
+                SpeedTestStage.DOWNLOAD -> neonCyan
+                SpeedTestStage.UPLOAD -> amberGlow
+                SpeedTestStage.COMPLETE -> neonTeal
+                else -> neonCyan
+            }
+
+            if (activeSweepAngle > 0f) {
+                drawArc(
+                    brush = Brush.horizontalGradient(
+                        colors = listOf(neonTeal, neonCyan, amberGlow)
+                    ),
+                    startAngle = 180f,
+                    sweepAngle = activeSweepAngle,
+                    useCenter = false,
+                    style = Stroke(width = strokeWidth + 2.dp.toPx(), cap = StrokeCap.Round),
+                    size = Size(radius * 2, radius * 2),
+                    topLeft = Offset(center.x - radius, center.y - radius)
+                )
+            }
+
+            // Ticks
+            val tickCount = 10
+            for (i in 0..tickCount) {
+                val angleRad = Math.toRadians((180.0 + (i * 180.0 / tickCount)))
+                val innerR = radius - 14.dp.toPx()
+                val outerR = radius - 6.dp.toPx()
+                val startX = center.x + innerR * Math.cos(angleRad).toFloat()
+                val startY = center.y + innerR * Math.sin(angleRad).toFloat()
+                val endX = center.x + outerR * Math.cos(angleRad).toFloat()
+                val endY = center.y + outerR * Math.sin(angleRad).toFloat()
+                drawLine(
+                    color = if (i.toFloat() / tickCount <= sweepRatio) gaugeColor else dividerBg,
+                    start = Offset(startX, startY),
+                    end = Offset(endX, endY),
+                    strokeWidth = 2.dp.toPx()
+                )
+            }
+        }
+
+        // Center overlay text
+        Column(
+            horizontalAlignment = Alignment.CenterHorizontally,
+            modifier = Modifier.padding(top = 22.dp)
+        ) {
+            Text(
+                text = when (stage) {
+                    SpeedTestStage.PING -> "PINGING"
+                    SpeedTestStage.DOWNLOAD -> "DOWNLOAD"
+                    SpeedTestStage.UPLOAD -> "UPLOAD"
+                    SpeedTestStage.COMPLETE -> "SPEED RATING"
+                    else -> "READY"
+                },
+                fontSize = 11.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = InspectorTheme.TextMuted,
+                letterSpacing = 1.sp
+            )
+            Spacer(modifier = Modifier.height(2.dp))
+            Text(
+                text = if (stage == SpeedTestStage.IDLE && currentValue == 0f) "0.0" else String.format(Locale.getDefault(), "%.1f", currentValue),
+                fontSize = 36.sp,
+                fontWeight = FontWeight.Black,
+                fontFamily = FontFamily.Monospace,
+                color = InspectorTheme.TextWhite
+            )
+            Text(
+                text = "Mbps",
+                fontSize = 13.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = InspectorTheme.NeonCyan
+            )
+        }
+    }
+}
+
+@Composable
+fun InternetSpeedTestCard(
+    speedState: SpeedTestState,
+    onStartTest: () -> Unit,
+    onCancelTest: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .drawCyberCorners(InspectorTheme.NeonCyan, 1.0f)
+            .testTag("internet_speed_test_card"),
+        shape = RoundedCornerShape(16.dp),
+        colors = CardDefaults.cardColors(containerColor = InspectorTheme.PanelBg),
+        border = BorderStroke(1.dp, InspectorTheme.DividerBg)
+    ) {
+        Column(
+            modifier = Modifier.padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(14.dp)
+        ) {
+            // Header
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.SpaceBetween,
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(InspectorTheme.NeonCyan.copy(alpha = 0.15f)),
+                        contentAlignment = Alignment.Center
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.Refresh,
+                            contentDescription = "Speed Check",
+                            tint = InspectorTheme.NeonCyan,
+                            modifier = Modifier.size(18.dp)
+                        )
+                    }
+                    Column {
+                        Text(
+                            text = "INTERNET SPEED CHECK",
+                            fontSize = 12.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = InspectorTheme.TextWhite,
+                            letterSpacing = 1.sp
+                        )
+                        Text(
+                            text = speedState.serverName,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = InspectorTheme.TextMuted
+                        )
+                    }
+                }
+
+                if (speedState.stage != SpeedTestStage.IDLE) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(
+                                when (speedState.stage) {
+                                    SpeedTestStage.PING -> InspectorTheme.NeonTeal.copy(alpha = 0.2f)
+                                    SpeedTestStage.DOWNLOAD -> InspectorTheme.NeonCyan.copy(alpha = 0.2f)
+                                    SpeedTestStage.UPLOAD -> InspectorTheme.AmberGlow.copy(alpha = 0.2f)
+                                    SpeedTestStage.COMPLETE -> InspectorTheme.NeonTeal.copy(alpha = 0.2f)
+                                    else -> InspectorTheme.DividerBg
+                                }
+                            )
+                            .padding(horizontal = 8.dp, vertical = 4.dp)
+                    ) {
+                        Text(
+                            text = speedState.stage.name,
+                            fontSize = 10.sp,
+                            fontFamily = FontFamily.Monospace,
+                            fontWeight = FontWeight.Bold,
+                            color = when (speedState.stage) {
+                                SpeedTestStage.PING -> InspectorTheme.NeonTeal
+                                SpeedTestStage.DOWNLOAD -> InspectorTheme.NeonCyan
+                                SpeedTestStage.UPLOAD -> InspectorTheme.AmberGlow
+                                SpeedTestStage.COMPLETE -> InspectorTheme.NeonTeal
+                                else -> InspectorTheme.TextMuted
+                            }
+                        )
+                    }
+                }
+            }
+
+            // Interactive Gauge Display
+            val displayValue = if (speedState.stage == SpeedTestStage.COMPLETE) speedState.downloadMbps else speedState.currentMbps
+            SpeedometerGauge(
+                currentValue = displayValue,
+                stage = speedState.stage,
+                progress = speedState.progress
+            )
+
+            // Status message & linear progress indicator
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = speedState.statusText,
+                        fontSize = 11.sp,
+                        fontFamily = FontFamily.Monospace,
+                        color = InspectorTheme.NeonCyan,
+                        fontWeight = FontWeight.Medium
+                    )
+                    if (speedState.stage != SpeedTestStage.IDLE && speedState.stage != SpeedTestStage.COMPLETE) {
+                        Text(
+                            text = "${(speedState.progress * 100).toInt()}%",
+                            fontSize = 11.sp,
+                            fontFamily = FontFamily.Monospace,
+                            color = InspectorTheme.TextMuted
+                        )
+                    }
+                }
+
+                if (speedState.stage != SpeedTestStage.IDLE && speedState.stage != SpeedTestStage.COMPLETE) {
+                    LinearProgressIndicator(
+                        progress = { speedState.progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(4.dp)
+                            .clip(RoundedCornerShape(2.dp)),
+                        color = when (speedState.stage) {
+                            SpeedTestStage.PING -> InspectorTheme.NeonTeal
+                            SpeedTestStage.DOWNLOAD -> InspectorTheme.NeonCyan
+                            SpeedTestStage.UPLOAD -> InspectorTheme.AmberGlow
+                            else -> InspectorTheme.NeonCyan
+                        },
+                        trackColor = InspectorTheme.DividerBg
+                    )
+                }
+            }
+
+            // 3 Real-time Metrics Cards (Ping, Download, Upload)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                // Ping & Jitter metric
+                SpeedMetricTile(
+                    title = "PING / LATENCY",
+                    valueText = if (speedState.pingMs > 0) "${speedState.pingMs} ms" else "--",
+                    subText = if (speedState.jitterMs > 0) "Jitter: ${speedState.jitterMs} ms" else "ICMP probe",
+                    isActive = speedState.stage == SpeedTestStage.PING,
+                    accentColor = InspectorTheme.NeonTeal,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Download metric
+                SpeedMetricTile(
+                    title = "DOWNLOAD",
+                    valueText = if (speedState.downloadMbps > 0f) String.format(Locale.getDefault(), "%.1f Mbps", speedState.downloadMbps) else "--",
+                    subText = "Rx Speed",
+                    isActive = speedState.stage == SpeedTestStage.DOWNLOAD,
+                    accentColor = InspectorTheme.NeonCyan,
+                    modifier = Modifier.weight(1f)
+                )
+
+                // Upload metric
+                SpeedMetricTile(
+                    title = "UPLOAD",
+                    valueText = if (speedState.uploadMbps > 0f) String.format(Locale.getDefault(), "%.1f Mbps", speedState.uploadMbps) else "--",
+                    subText = "Tx Speed",
+                    isActive = speedState.stage == SpeedTestStage.UPLOAD,
+                    accentColor = InspectorTheme.AmberGlow,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+
+            // Live throughput wave canvas (if active testing with history)
+            if (speedState.liveMbpsHistory.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(44.dp)
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(InspectorTheme.DarkBg)
+                        .padding(horizontal = 8.dp, vertical = 4.dp)
+                ) {
+                    val lineGraphColor = when (speedState.stage) {
+                        SpeedTestStage.DOWNLOAD -> InspectorTheme.NeonCyan
+                        SpeedTestStage.UPLOAD -> InspectorTheme.AmberGlow
+                        else -> InspectorTheme.NeonTeal
+                    }
+                    Canvas(modifier = Modifier.fillMaxSize()) {
+                        val points = speedState.liveMbpsHistory
+                        if (points.size >= 2) {
+                            val maxVal = (points.maxOrNull() ?: 100f).coerceAtLeast(10f)
+                            val stepX = size.width / (points.size - 1)
+                            val path = Path()
+
+                            points.forEachIndexed { i, valMbps ->
+                                val x = i * stepX
+                                val y = size.height - (valMbps / maxVal * size.height)
+                                if (i == 0) path.moveTo(x, y) else path.lineTo(x, y)
+                            }
+
+                            drawPath(
+                                path = path,
+                                color = lineGraphColor,
+                                style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Quality Rating Badge (when complete)
+            if (speedState.stage == SpeedTestStage.COMPLETE && speedState.rating.isNotEmpty()) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(InspectorTheme.NeonTeal.copy(alpha = 0.12f))
+                        .border(1.dp, InspectorTheme.NeonTeal.copy(alpha = 0.4f), RoundedCornerShape(10.dp))
+                        .padding(12.dp)
+                ) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp)
+                    ) {
+                        Icon(
+                            imageVector = Icons.Default.CheckCircle,
+                            contentDescription = null,
+                            tint = InspectorTheme.NeonTeal,
+                            modifier = Modifier.size(20.dp)
+                        )
+                        Column {
+                            Text(
+                                text = "CONNECTION PERFORMANCE RATING",
+                                fontSize = 9.sp,
+                                fontFamily = FontFamily.Monospace,
+                                fontWeight = FontWeight.Bold,
+                                color = InspectorTheme.TextMuted,
+                                letterSpacing = 0.8.sp
+                            )
+                            Text(
+                                text = speedState.rating,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                                color = InspectorTheme.NeonTeal
+                            )
+                        }
+                    }
+                }
+            }
+
+            // Action Button
+            val isTesting = speedState.stage != SpeedTestStage.IDLE && speedState.stage != SpeedTestStage.COMPLETE && speedState.stage != SpeedTestStage.ERROR
+            Button(
+                onClick = {
+                    if (isTesting) onCancelTest() else onStartTest()
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(48.dp)
+                    .testTag("btn_internet_speed_check"),
+                shape = RoundedCornerShape(12.dp),
+                colors = ButtonDefaults.buttonColors(
+                    containerColor = if (isTesting) InspectorTheme.WarmCoral else InspectorTheme.NeonCyan,
+                    contentColor = InspectorTheme.DarkBg
+                )
+            ) {
+                if (isTesting) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        color = InspectorTheme.DarkBg,
+                        strokeWidth = 2.dp
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text("CANCEL SPEED CHECK", fontWeight = FontWeight.Bold, fontSize = 12.sp)
+                } else {
+                    Icon(
+                        imageVector = Icons.Default.PlayArrow,
+                        contentDescription = null,
+                        modifier = Modifier.size(18.dp)
+                    )
+                    Spacer(modifier = Modifier.width(8.dp))
+                    Text(
+                        text = if (speedState.stage == SpeedTestStage.COMPLETE) "RERUN INTERNET SPEED CHECK" else "START INTERNET SPEED CHECK",
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 12.sp
+                    )
+                }
+            }
+
+            // Speed Test History section
+            if (speedState.testHistory.isNotEmpty()) {
+                Spacer(modifier = Modifier.height(4.dp))
+                Text(
+                    text = "SPEED TEST HISTORY",
+                    fontSize = 10.sp,
+                    fontFamily = FontFamily.Monospace,
+                    fontWeight = FontWeight.Bold,
+                    color = InspectorTheme.TextMuted,
+                    letterSpacing = 1.sp
+                )
+
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    speedState.testHistory.take(3).forEach { item ->
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(InspectorTheme.DarkBg)
+                                .padding(10.dp)
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically
+                            ) {
+                                Column {
+                                    Text(
+                                        text = "${item.timestamp} • ${item.connectionType}",
+                                        fontSize = 10.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = InspectorTheme.TextMuted
+                                    )
+                                    Text(
+                                        text = "Ping: ${item.pingMs} ms",
+                                        fontSize = 11.sp,
+                                        fontFamily = FontFamily.Monospace,
+                                        color = InspectorTheme.NeonTeal
+                                    )
+                                }
+
+                                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = "DL",
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = InspectorTheme.TextMuted
+                                        )
+                                        Text(
+                                            text = String.format(Locale.getDefault(), "%.1f Mbps", item.downloadMbps),
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            color = InspectorTheme.NeonCyan
+                                        )
+                                    }
+
+                                    Column(horizontalAlignment = Alignment.End) {
+                                        Text(
+                                            text = "UL",
+                                            fontSize = 9.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            color = InspectorTheme.TextMuted
+                                        )
+                                        Text(
+                                            text = String.format(Locale.getDefault(), "%.1f Mbps", item.uploadMbps),
+                                            fontSize = 11.sp,
+                                            fontFamily = FontFamily.Monospace,
+                                            fontWeight = FontWeight.Bold,
+                                            color = InspectorTheme.AmberGlow
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+fun SpeedMetricTile(
+    title: String,
+    valueText: String,
+    subText: String,
+    isActive: Boolean,
+    accentColor: Color,
+    modifier: Modifier = Modifier
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (isActive) accentColor.copy(alpha = 0.15f) else InspectorTheme.DarkBg)
+            .border(
+                1.dp,
+                if (isActive) accentColor else InspectorTheme.DividerBg,
+                RoundedCornerShape(10.dp)
+            )
+            .padding(10.dp)
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+            Text(
+                text = title,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = if (isActive) accentColor else InspectorTheme.TextMuted,
+                letterSpacing = 0.5.sp
+            )
+            Text(
+                text = valueText,
+                fontSize = 14.sp,
+                fontFamily = FontFamily.Monospace,
+                fontWeight = FontWeight.Bold,
+                color = InspectorTheme.TextWhite
+            )
+            Text(
+                text = subText,
+                fontSize = 9.sp,
+                fontFamily = FontFamily.Monospace,
+                color = InspectorTheme.TextMuted
+            )
         }
     }
 }
